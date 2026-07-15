@@ -7,22 +7,22 @@ import { uid } from '../lib/format.js'
 
 // Perfis de acesso (Tarefas 1, 14, 40, 41)
 export const ROLES = {
-  admin:         { label: 'Administrador',  color: 'b-purple' },
-  vendedor:      { label: 'Vendedor',       color: 'b-blue' },
-  tecnico:       { label: 'Técnico',        color: 'b-amber' },
-  operacional:   { label: 'Operacional',    color: 'b-green' },
-  contabilidade: { label: 'Contabilidade',  color: 'b-gray' },
-  contador:      { label: 'Contador',       color: 'b-gray' },
+  admin: { label: 'Administrador', color: 'b-purple' },
+  vendedor: { label: 'Vendedor', color: 'b-blue' },
+  tecnico: { label: 'Técnico', color: 'b-amber' },
+  operacional: { label: 'Operacional', color: 'b-green' },
+  contabilidade: { label: 'Contabilidade', color: 'b-gray' },
+  contador: { label: 'Contador', color: 'b-gray' },
 }
 
 // Estágios do funil de vendas (Kanban — Tarefa 6)
 export const FUNNEL = [
-  { id: 'novo',       label: 'Novo Lead',  color: '#64748b' },
-  { id: 'contato',    label: 'Contato',    color: '#2563eb' },
-  { id: 'proposta',   label: 'Proposta',   color: '#7c3aed' },
+  { id: 'novo', label: 'Novo Lead', color: '#64748b' },
+  { id: 'contato', label: 'Contato', color: '#2563eb' },
+  { id: 'proposta', label: 'Proposta', color: '#7c3aed' },
   { id: 'negociacao', label: 'Negociação', color: '#d97706' },
-  { id: 'fechado',    label: 'Fechado',    color: '#16a34a' },
-  { id: 'perdido',    label: 'Perdido',    color: '#dc2626' },
+  { id: 'fechado', label: 'Fechado', color: '#16a34a' },
+  { id: 'perdido', label: 'Perdido', color: '#dc2626' },
 ]
 
 const dayOffset = (n) => {
@@ -40,32 +40,32 @@ const isoNow = (minsAgo = 0) => {
 export function buildSeed() {
   // ---------- Usuários / equipe ----------
   const users = [
-    { id: 'u_douglas', name: 'Douglas Ferreira', email: 'douglas@gpsrastreamento.com', role: 'admin', active: true },
-    { id: 'u_ana',     name: 'Ana Souza',        email: 'ana@gpsrastreamento.com',     role: 'vendedor', active: true, comissaoFixa: 80 },
-    { id: 'u_bruno',   name: 'Bruno Alves',      email: 'bruno@gpsrastreamento.com',   role: 'vendedor', active: true, comissaoFixa: 80 },
-    { id: 'u_carlos',  name: 'Carlos Dias',      email: 'carlos@gpsrastreamento.com',  role: 'tecnico', active: true, valorKm: 1.20 },
-    { id: 'u_marcos',  name: 'Marcos Lima',      email: 'marcos@gpsrastreamento.com',  role: 'tecnico', active: true, valorKm: 1.20 },
-    { id: 'u_patricia',name: 'Patrícia Reis',    email: 'patricia@gpsrastreamento.com',role: 'operacional', active: true },
-    { id: 'u_jose',    name: 'José Carlos',      email: 'jose@gpsrastreamento.com',    role: 'contabilidade', active: true },
-    { id: 'u_helena',  name: 'Helena Costa',     email: 'contador@gpsrastreamento.com',role: 'contador', active: true },
+    { id: 'u_douglas', name: 'Douglas Spessoto', email: 'douglas@gpsrastreamento.com', role: 'admin', active: true },
+    { id: 'u_ana', name: 'Ana Souza', email: 'ana@gpsrastreamento.com', role: 'vendedor', active: true, comissaoFixa: 80 },
+    { id: 'u_bruno', name: 'Bruno Alves', email: 'bruno@gpsrastreamento.com', role: 'vendedor', active: true, comissaoFixa: 80 },
+    { id: 'u_carlos', name: 'Carlos Dias', email: 'carlos@gpsrastreamento.com', role: 'tecnico', active: true, valorKm: 1.20 },
+    { id: 'u_marcos', name: 'Marcos Lima', email: 'marcos@gpsrastreamento.com', role: 'tecnico', active: true, valorKm: 1.20 },
+    { id: 'u_patricia', name: 'Patrícia Reis', email: 'patricia@gpsrastreamento.com', role: 'operacional', active: true },
+    { id: 'u_jose', name: 'José Carlos', email: 'jose@gpsrastreamento.com', role: 'contabilidade', active: true },
+    { id: 'u_helena', name: 'Helena Costa', email: 'contador@gpsrastreamento.com', role: 'contador', active: true },
   ]
 
   // ---------- Planos (Tarefas 23, 24) — valores alteráveis por input ----------
   const planos = [
-    { id: 'p_basico',   nome: 'Rastreamento Básico',  valorMensal: 79.90,  valorInstalacao: 150, valorMonitoramento: 0,     descricao: 'Localização em tempo real, app mobile.' },
-    { id: 'p_plus',     nome: 'Rastreamento Plus',    valorMensal: 99.90,  valorInstalacao: 150, valorMonitoramento: 0,     descricao: 'Básico + bloqueio remoto e cerca virtual.' },
-    { id: 'p_monit',    nome: 'Monitoramento 24h',    valorMensal: 149.90, valorInstalacao: 200, valorMonitoramento: 49.90, descricao: 'Plus + central de monitoramento 24h.' },
-    { id: 'p_frota',    nome: 'Gestão de Frota',      valorMensal: 119.90, valorInstalacao: 180, valorMonitoramento: 30,    descricao: 'Relatórios de frota, telemetria e roteirização.' },
+    { id: 'p_basico', nome: 'Rastreamento Básico', valorMensal: 79.90, valorInstalacao: 150, valorMonitoramento: 0, descricao: 'Localização em tempo real, app mobile.' },
+    { id: 'p_plus', nome: 'Rastreamento Plus', valorMensal: 99.90, valorInstalacao: 150, valorMonitoramento: 0, descricao: 'Básico + bloqueio remoto e cerca virtual.' },
+    { id: 'p_monit', nome: 'Monitoramento 24h', valorMensal: 149.90, valorInstalacao: 200, valorMonitoramento: 49.90, descricao: 'Plus + central de monitoramento 24h.' },
+    { id: 'p_frota', nome: 'Gestão de Frota', valorMensal: 119.90, valorInstalacao: 180, valorMonitoramento: 30, descricao: 'Relatórios de frota, telemetria e roteirização.' },
   ]
 
   // ---------- Produtos e serviços (Tarefa 17) ----------
   const produtos = [
     { id: 'pr_rastreador', nome: 'Rastreador GPS GT06N', tipo: 'produto', valor: 220, descricao: 'Equipamento de rastreamento veicular.' },
-    { id: 'pr_isca',       nome: 'Rastreador Isca (Backup)', tipo: 'produto', valor: 180, descricao: 'Rastreador secundário oculto.' },
+    { id: 'pr_isca', nome: 'Rastreador Isca (Backup)', tipo: 'produto', valor: 180, descricao: 'Rastreador secundário oculto.' },
     { id: 'pr_instalacao', nome: 'Instalação de rastreador', tipo: 'servico', valor: 150, descricao: 'Mão de obra de instalação.' },
-    { id: 'pr_manutencao', nome: 'Manutenção / revisão',     tipo: 'servico', valor: 90,  descricao: 'Revisão e reparo de equipamento.' },
-    { id: 'pr_remocao',    nome: 'Remoção de equipamento',   tipo: 'servico', valor: 70,  descricao: 'Retirada do rastreador.' },
-    { id: 'pr_chip',       nome: 'Chip M2M',                 tipo: 'produto', valor: 25,  descricao: 'SIM card de dados M2M.' },
+    { id: 'pr_manutencao', nome: 'Manutenção / revisão', tipo: 'servico', valor: 90, descricao: 'Revisão e reparo de equipamento.' },
+    { id: 'pr_remocao', nome: 'Remoção de equipamento', tipo: 'servico', valor: 70, descricao: 'Retirada do rastreador.' },
+    { id: 'pr_chip', nome: 'Chip M2M', tipo: 'produto', valor: 25, descricao: 'SIM card de dados M2M.' },
   ]
 
   // ---------- Clientes / Leads (Tarefas 7, 20, 22) ----------

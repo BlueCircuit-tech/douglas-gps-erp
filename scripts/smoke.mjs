@@ -13,7 +13,7 @@ const ROUTES = [
 ]
 
 const SESSION = JSON.stringify({
-  id: 'u_douglas', name: 'Douglas Ferreira', role: 'admin', email: 'douglas@gpsrastreamento.com',
+  id: 'u_douglas', name: 'Douglas Spessoto', role: 'admin', email: 'douglas@gpsrastreamento.com',
 })
 
 const browser = await puppeteer.launch({
@@ -34,7 +34,7 @@ for (const route of ROUTES) {
 
   // Injeta sessão antes do app carregar.
   await page.evaluateOnNewDocument((s) => {
-    try { localStorage.setItem('erp_gps_session', s) } catch (e) {}
+    try { localStorage.setItem('erp_gps_session', s) } catch (e) { }
   }, SESSION)
 
   try {

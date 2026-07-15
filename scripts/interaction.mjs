@@ -49,7 +49,7 @@ async function freshPage() {
 // 2) ADMIN cria um cliente via modal → aparece na lista
 {
   const page = await freshPage()
-  await page.evaluate(() => localStorage.setItem('erp_gps_session', JSON.stringify({ id: 'u_douglas', name: 'Douglas Ferreira', role: 'admin', email: 'd@x.com' })))
+  await page.evaluate(() => localStorage.setItem('erp_gps_session', JSON.stringify({ id: 'u_douglas', name: 'Douglas Spessoto', role: 'admin', email: 'd@x.com' })))
   await page.goto(BASE + '/clientes', { waitUntil: 'networkidle0' })
   await sleep(300)
   const before = await page.evaluate(() => document.querySelectorAll('table.tbl tbody tr').length)
@@ -86,7 +86,7 @@ async function freshPage() {
 
 await browser.close()
 console.log('\n===== INTERACTION TEST =====')
-for (const r of results) console.log(`${r.ok ? '✅' : '❌'} ${r.name}${r.extra ? '  ('+r.extra+')' : ''}`)
+for (const r of results) console.log(`${r.ok ? '✅' : '❌'} ${r.name}${r.extra ? '  (' + r.extra + ')' : ''}`)
 const failed = results.filter((r) => !r.ok).length
 console.log(`\n${results.length - failed}/${results.length} checks OK`)
 process.exit(failed ? 1 : 0)
