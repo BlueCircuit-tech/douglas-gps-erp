@@ -1,15 +1,11 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  LifeBuoy, Search, ChevronDown, ExternalLink, ShieldCheck, Smartphone,
+  LifeBuoy, Search, ChevronDown,
   Users, TrendingUp, Wrench, Boxes, Wallet, Receipt, Calculator, FileText,
-  Coins, BarChart3, MessageCircle, Mail, Phone, CheckCircle2,
+  Coins, BarChart3, MessageCircle, Mail, Phone,
 } from 'lucide-react'
-import { useCollections } from '../hooks/useSupabase.js'
-import { useAuth } from '../auth/AuthContext.jsx'
-import { fmtDateTime } from '../lib/format.js'
 import { PageHead, Card, CardHead, Badge, EmptyState } from '../components/ui.jsx'
-import { ROLES } from '../data/seed.js'
 
 // ---------- Atalhos para os principais módulos ----------
 const ATALHOS = [
@@ -100,13 +96,8 @@ function FaqItem({ item, open, onToggle }) {
 }
 
 export default function Ajuda() {
-  const { db } = useCollections([])
-  const { user } = useAuth()
   const [openId, setOpenId] = useState('f1')
   const [q, setQ] = useState('')
-
-  const meta = db.meta || {}
-  const perfil = ROLES[user?.role]?.label || '—'
 
   const faqFiltrado = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -118,7 +109,7 @@ export default function Ajuda() {
     <>
       <PageHead
         title="Central de Ajuda e Suporte"
-        subtitle="Atalhos, dúvidas frequentes, canais de atendimento e informações do sistema"
+        subtitle="Atalhos, dúvidas frequentes e canais de atendimento"
       >
         <a className="btn btn-primary" href="https://wa.me/5511991234567" target="_blank" rel="noreferrer">
           <LifeBuoy size={16} /> Falar com o suporte
@@ -209,51 +200,6 @@ export default function Ajuda() {
             </div>
           </Card>
 
-          {/* ---------- Informações do sistema ---------- */}
-          <Card>
-            <CardHead title="Informações do sistema" sub="Versão e ambiente" icon={<ShieldCheck size={18} color="var(--brand)" />} />
-            <div className="card-pad col gap-12">
-              <div className="between">
-                <span className="mut flex gap-8" style={{ alignItems: 'center' }}><Smartphone size={15} /> Empresa</span>
-                <span className="bold">{meta.empresa || '—'}</span>
-              </div>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="between">
-                <span className="mut">Versão</span>
-                <Badge tone="blue" dot>v{meta.version != null ? `${meta.version}.0` : '—'}</Badge>
-              </div>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="between">
-                <span className="mut">Perfil de acesso</span>
-                <Badge tone="purple">{perfil}</Badge>
-              </div>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="between">
-                <span className="mut">Usuário logado</span>
-                <span className="bold">{user?.name || '—'}</span>
-              </div>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="between" style={{ gap: 8 }}>
-                <span className="mut">Homologação</span>
-                {meta.homolog ? (
-                  <a
-                    href={meta.homolog}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex gap-6 bold"
-                    style={{ color: 'var(--brand)', fontSize: 13, alignItems: 'center', textDecoration: 'none' }}
-                  >
-                    <ExternalLink size={14} /> Acessar ambiente
-                  </a>
-                ) : <span className="mut">—</span>}
-              </div>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="flex gap-8 mut" style={{ alignItems: 'center', fontSize: 12.5 }}>
-                <CheckCircle2 size={15} color="var(--green)" />
-                Sistema operacional · acesso em {fmtDateTime(new Date().toISOString())}
-              </div>
-            </div>
-          </Card>
         </div>
       </div>
     </>
