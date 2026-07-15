@@ -3,10 +3,10 @@ import { useState } from 'react'
 import {
   LayoutDashboard, Users, SquareKanban, ClipboardList, Boxes, Wallet, Receipt,
   Coins, FileText, Calculator, Package, Layers, BarChart3, ShieldCheck, Bell,
-  LifeBuoy, Search, LogOut, MapPin, ChevronDown, ExternalLink,
+  LifeBuoy, Search, LogOut, MapPin, ChevronDown, ExternalLink, Truck,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { useStore } from '../data/store.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { ROLES } from '../data/seed.js'
 import { Avatar, Badge } from './ui.jsx'
 
@@ -17,6 +17,7 @@ const NAV = [
   ]},
   { section: 'Comercial', items: [
     { key: 'clientes', to: '/clientes', label: 'Clientes', icon: Users },
+    { key: 'fornecedores', to: '/fornecedores', label: 'Fornecedores', icon: Truck },
     { key: 'funil', to: '/funil', label: 'Funil de Vendas', icon: SquareKanban },
     { key: 'contratos', to: '/contratos', label: 'Contratos', icon: FileText },
     { key: 'comissoes', to: '/comissoes', label: 'Comissões', icon: Coins },
@@ -47,7 +48,7 @@ const NAV = [
 
 export default function AppShell({ children }) {
   const { user, can, logout } = useAuth()
-  const db = useStore()
+  const { db } = useCollections(['ordens', 'notificacoes'])
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 

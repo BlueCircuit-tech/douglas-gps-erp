@@ -5,7 +5,7 @@ import {
   Users, TrendingUp, Wrench, Boxes, Wallet, Receipt, Calculator, FileText,
   Coins, BarChart3, MessageCircle, Mail, Phone, CheckCircle2,
 } from 'lucide-react'
-import { useStore } from '../data/store.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { fmtDateTime } from '../lib/format.js'
 import { PageHead, Card, CardHead, Badge, EmptyState } from '../components/ui.jsx'
@@ -100,7 +100,7 @@ function FaqItem({ item, open, onToggle }) {
 }
 
 export default function Ajuda() {
-  const db = useStore()
+  const { db } = useCollections([])
   const { user } = useAuth()
   const [openId, setOpenId] = useState('f1')
   const [q, setQ] = useState('')

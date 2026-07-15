@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Check, MapPin, Route, AlertTriangle, Camera, CheckCircle2, Navigation, User, Wrench,
 } from 'lucide-react'
-import { useStore, actions, byId, clientName, userName } from '../data/store.js'
+import { api, ordensApi, clientName, userName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { fmtDate, BRL, uid } from '../lib/format.js'
 import { PageHead, Card, CardHead, Btn, Field, Modal, Progress, useToast, StatusBadge } from '../components/ui.jsx'
@@ -11,26 +12,37 @@ import { OS_TIPOS } from './OrdensServico.jsx'
 
 export default function OrdemDetalhe() {
   const { id } = useParams()
-  const db = useStore()
+  const { db, loading, refetch } = useCollections(['ordens', 'users', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
-  const os = byId('ordens', id)
+  const os = (db.ordens || []).find((o) => o.id === id)
   const [kmModal, setKmModal] = useState(false)
   const [km, setKm] = useState('')
   const [rotaTracada, setRotaTracada] = useState(false)
 
-  if (!os) return <PageHead title="OS não encontrada"><Btn onClick={() => navigate('/os')}>Voltar</Btn></PageHead>
+  if (!os) {
+    return (
+      <PageHead title={loading ? 'Carregando...' : 'OS não encontrada'}>
+        <Btn onClick={() => navigate('/os')}>Voltar</Btn>
+      </PageHead>
+    )
+  }
 
   const T = OS_TIPOS[os.tipo]
-  const tecnico = byId('users', os.tecnicoId)
+  const tecnico = (db.users || []).find((u) => u.id === os.tecnicoId)
   const done = (os.checklist || []).filter((c) => c.done).length
   const total = (os.checklist || []).length
   const pct = total ? Math.round((done / total) * 100) : 0
 
-  const toggle = (kid) => {
+  const toggle = async (kid) => {
     const checklist = os.checklist.map((c) => (c.id === kid ? { ...c, done: !c.done } : c))
-    actions.patch('ordens', os.id, { checklist })
+    try {
+      await ordensApi.update(os.id, { checklist })
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const tracarRota = () => {
@@ -41,21 +53,26 @@ export default function OrdemDetalhe() {
     toast(`Rota estimada: ${estimado} km`)
   }
 
-  const concluir = () => {
+  const concluir = async () => {
     if (done < total) { toast('Conclua todos os itens do checklist', 'error'); return }
     const kmFinal = Number(km) || os.km || 0
-    actions.patch('ordens', os.id, { status: 'concluida', concluidaEm: new Date().toISOString().slice(0, 10), km: kmFinal })
-    // Comissão do técnico por KM (Tarefa 33)
     const valorKm = tecnico?.valorKm || 1.2
-    actions.add('comissoes', {
-      id: uid('co'), tipo: 'tecnico', pessoaId: os.tecnicoId,
-      referencia: `OS #${os.numero} - ${T.label} ${clientName(os.clientId)}`,
-      valorFixo: +(kmFinal * valorKm).toFixed(2), km: kmFinal, kmManual: !rotaTracada,
-      data: new Date().toISOString().slice(0, 10), status: 'pendente',
-    })
-    actions.log(user.id, 'concluir', 'OS', `OS #${os.numero} concluída (${kmFinal} km)`)
-    toast('OS concluída e comissão gerada')
-    setKmModal(false)
+    try {
+      await ordensApi.update(os.id, { status: 'concluida', concluidaEm: new Date().toISOString().slice(0, 10), km: kmFinal })
+      // Comissão do técnico por KM (Tarefa 33)
+      await api.comissoes.insert({
+        id: uid('co'), tipo: 'tecnico', pessoaId: os.tecnicoId,
+        referencia: `OS #${os.numero} - ${T.label} ${clientName(os.clientId)}`,
+        valorFixo: +(kmFinal * valorKm).toFixed(2), km: kmFinal, kmManual: !rotaTracada,
+        data: new Date().toISOString().slice(0, 10), status: 'pendente',
+      })
+      logAudit(user.id, 'concluir', 'OS', `OS #${os.numero} concluída (${kmFinal} km)`)
+      toast('OS concluída e comissão gerada')
+      setKmModal(false)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   return (

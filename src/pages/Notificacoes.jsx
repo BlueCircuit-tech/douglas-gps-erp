@@ -4,7 +4,8 @@ import {
   Bell, AlertTriangle, Receipt, DollarSign, Wallet, Smartphone,
   Wrench, Cake, MessageCircle, CheckCircle2, Check,
 } from 'lucide-react'
-import { useStore, actions, clientName, userName } from '../data/store.js'
+import { api, clientName, userName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, daysUntil, isOverdue, todayISO, uid } from '../lib/format.js'
 import {
@@ -38,7 +39,7 @@ function alertIcon(tipo) {
 const diasAtraso = (iso) => Math.abs(daysUntil(iso) || 0)
 
 export default function Notificacoes() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['boletos', 'contasReceber', 'contasPagar', 'chips', 'ordens', 'clients', 'users'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
@@ -145,15 +146,20 @@ export default function Notificacoes() {
     toast('Todos os alertas marcados como lidos')
   }
 
-  const parabenizar = (a) => {
-    actions.add('interacoes', {
-      id: uid('in'), clientId: a.clientId, canal: 'whatsapp',
-      descricao: 'Mensagem automática de aniversário enviada: "Parabéns! A equipe GPS Rastreamento deseja um feliz aniversário."',
-      data: new Date().toISOString(),
-    })
-    actions.log(user.id, 'enviar', 'mensagem', `Mensagem de aniversário para ${clientName(a.clientId)}`)
-    toast('Mensagem de aniversário enviada')
-    marcarLida(a.id)
+  const parabenizar = async (a) => {
+    try {
+      await api.interacoes.insert({
+        id: uid('in'), clientId: a.clientId, canal: 'whatsapp',
+        descricao: 'Mensagem automática de aniversário enviada: "Parabéns! A equipe GPS Rastreamento deseja um feliz aniversário."',
+        data: new Date().toISOString(),
+      })
+      logAudit(user.id, 'enviar', 'mensagem', `Mensagem de aniversário para ${clientName(a.clientId)}`)
+      toast('Mensagem de aniversário enviada')
+      marcarLida(a.id)
+      refetch()
+    } catch (e) {
+      toast('Erro ao enviar mensagem: ' + e.message, 'error')
+    }
   }
 
   // Botão de ação contextual por tipo.

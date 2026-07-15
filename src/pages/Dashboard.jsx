@@ -8,16 +8,17 @@ import {
   DollarSign, AlertTriangle, TrendingUp, TrendingDown, Wallet, Users,
   ClipboardList, Receipt, ArrowUpRight, UserPlus, FileText, Boxes,
 } from 'lucide-react'
-import { useStore } from '../data/store.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDateTime, isOverdue, daysUntil } from '../lib/format.js'
 import { PageHead, Card, CardHead, Stat, Badge, Avatar } from '../components/ui.jsx'
 import { ROLES } from '../data/seed.js'
+import { mensalidadeTotal } from '../lib/recorrencia.js'
 
 const COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#06b6d4']
 
 export default function Dashboard() {
-  const db = useStore()
+  const { db } = useCollections(['contasReceber', 'contasPagar', 'clients', 'ordens', 'boletos', 'planos', 'auditLogs', 'users'])
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -54,10 +55,10 @@ export default function Dashboard() {
   // Receita por plano
   const porPlano = useMemo(() => {
     const map = {}
-    ;(db.clients || []).filter((c) => c.status === 'ativo').forEach((c) => {
+    ;(db.clients || []).filter((c) => c.ativo).forEach((c) => {
       const p = (db.planos || []).find((p) => p.id === c.planoId)
       const nome = p?.nome || 'Outro'
-      map[nome] = (map[nome] || 0) + (c.valorMensal || 0)
+      map[nome] = (map[nome] || 0) + mensalidadeTotal(c)
     })
     return Object.entries(map).map(([name, value]) => ({ name, value }))
   }, [db])

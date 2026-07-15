@@ -3,9 +3,10 @@ import {
   Users, UserPlus, ShieldCheck, Wrench, Calculator, TrendingUp,
   Receipt, Package, Search, Pencil, Power,
 } from 'lucide-react'
-import { useStore, actions } from '../data/store.js'
+import { api, logAudit } from '../data/api.js'
+import { useQuery } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, uid } from '../lib/format.js'
+import { BRL } from '../lib/format.js'
 import {
   PageHead, Card, CardHead, Btn, Badge, Avatar, Stat, Field,
   EmptyState, Modal, Segmented, useToast, StatusBadge,
@@ -26,10 +27,13 @@ const ROLE_ICON = {
 // Tom do Badge a partir da cor do perfil (ROLES[role].color = 'b-xxx' → 'xxx')
 const roleTone = (role) => (ROLES[role]?.color || 'b-gray').replace('b-', '')
 
-const emptyForm = () => ({ name: '', email: '', role: 'vendedor', comissaoFixa: 80, valorKm: 1.20 })
+const emptyForm = () => ({
+  name: '', email: '', role: 'vendedor',
+  comissaoFixa: 50, comissaoRecorrentePct: 5,
+  valorInstalacao: 40, valorManutencao: 25, valorDesinstalacao: 30, valorKm: 1.20,
+})
 
 export default function Equipe() {
-  const db = useStore()
   const { user } = useAuth()
   const toast = useToast()
   const [q, setQ] = useState('')
@@ -37,8 +41,10 @@ export default function Equipe() {
   const [open, setOpen] = useState(false)
   const [editId, setEditId] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
 
-  const users = db.users || []
+  const { data, loading, error, refetch } = useQuery(() => api.users.list({ order: { column: 'createdAt' } }), [])
+  const users = data || []
 
   // KPIs por contagem de papel
   const counts = useMemo(() => {
@@ -72,40 +78,65 @@ export default function Equipe() {
       name: u.name || '',
       email: u.email || '',
       role: u.role || 'vendedor',
-      comissaoFixa: u.comissaoFixa ?? 80,
+      comissaoFixa: u.comissaoFixa ?? 50,
+      comissaoRecorrentePct: u.comissaoRecorrentePct ?? 5,
+      valorInstalacao: u.valorInstalacao ?? 40,
+      valorManutencao: u.valorManutencao ?? 25,
+      valorDesinstalacao: u.valorDesinstalacao ?? 30,
       valorKm: u.valorKm ?? 1.20,
     })
     setOpen(true)
   }
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.name.trim()) { toast('Informe o nome do membro', 'error'); return }
     const payload = { name: form.name.trim(), email: form.email.trim(), role: form.role }
-    if (form.role === 'vendedor') payload.comissaoFixa = Number(form.comissaoFixa) || 0
-    if (form.role === 'tecnico') payload.valorKm = Number(form.valorKm) || 0
-
-    if (editId) {
-      actions.patch('users', editId, payload)
-      actions.log(user.id, 'editar', 'equipe', `Membro atualizado: ${payload.name} (${ROLES[payload.role]?.label})`)
-      toast('Membro atualizado com sucesso')
-    } else {
-      actions.add('users', { id: uid('u'), active: true, ...payload })
-      actions.log(user.id, 'criar', 'equipe', `Novo membro: ${payload.name} (${ROLES[payload.role]?.label})`)
-      toast('Membro adicionado com sucesso')
+    if (form.role === 'vendedor') {
+      payload.comissaoFixa = Number(form.comissaoFixa) || 0
+      payload.comissaoRecorrentePct = Number(form.comissaoRecorrentePct) || 0
     }
-    setOpen(false)
-    setEditId(null)
-    setForm(emptyForm())
+    if (form.role === 'tecnico') {
+      payload.valorInstalacao = Number(form.valorInstalacao) || 0
+      payload.valorManutencao = Number(form.valorManutencao) || 0
+      payload.valorDesinstalacao = Number(form.valorDesinstalacao) || 0
+      payload.valorKm = Number(form.valorKm) || 0
+    }
+
+    setSaving(true)
+    try {
+      if (editId) {
+        await api.users.update(editId, payload)
+        logAudit(user.id, 'editar', 'equipe', `Membro atualizado: ${payload.name} (${ROLES[payload.role]?.label})`)
+        toast('Membro atualizado com sucesso')
+      } else {
+        await api.users.insert({ active: true, ...payload })
+        logAudit(user.id, 'criar', 'equipe', `Novo membro: ${payload.name} (${ROLES[payload.role]?.label})`)
+        toast('Membro adicionado com sucesso')
+      }
+      setOpen(false)
+      setEditId(null)
+      setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro ao salvar: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const toggleAtivo = (u) => {
+  const toggleAtivo = async (u) => {
     if (u.id === user.id && u.active) {
       toast('Você não pode desativar o próprio acesso', 'error')
       return
     }
-    actions.patch('users', u.id, { active: !u.active })
-    actions.log(user.id, u.active ? 'desativar' : 'ativar', 'equipe', `${u.active ? 'Desativou' : 'Ativou'} ${u.name}`)
-    toast(u.active ? 'Membro desativado' : 'Membro ativado')
+    try {
+      await api.users.update(u.id, { active: !u.active })
+      logAudit(user.id, u.active ? 'desativar' : 'ativar', 'equipe', `${u.active ? 'Desativou' : 'Ativou'} ${u.name}`)
+      toast(u.active ? 'Membro desativado' : 'Membro ativado')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   // Coluna de remuneração específica por papel
@@ -114,15 +145,15 @@ export default function Equipe() {
       return (
         <div>
           <span className="mono bold">{BRL(u.comissaoFixa || 0)}</span>
-          <div className="mut" style={{ fontSize: 11 }}>comissão fixa / venda</div>
+          <div className="mut" style={{ fontSize: 11 }}>fixo + {u.comissaoRecorrentePct || 0}% recorrente</div>
         </div>
       )
     }
     if (u.role === 'tecnico') {
       return (
         <div>
-          <span className="mono bold">{BRL(u.valorKm || 0)}</span>
-          <div className="mut" style={{ fontSize: 11 }}>valor por km rodado</div>
+          <span className="mono bold">{BRL(u.valorInstalacao || 0)}</span>
+          <div className="mut" style={{ fontSize: 11 }}>instalação · {BRL(u.valorKm || 0)}/km</div>
         </div>
       )
     }
@@ -220,7 +251,11 @@ export default function Equipe() {
               ))}
             </tbody>
           </table>
-          {!list.length && (
+          {loading && <EmptyState icon={<Users size={40} />} title="Carregando equipe..." sub="Buscando no Supabase." />}
+          {error && !loading && (
+            <EmptyState icon={<Users size={40} />} title="Erro ao carregar" sub={error.message + ' — verifique o .env e o schema no Supabase.'} />
+          )}
+          {!loading && !error && !list.length && (
             <EmptyState
               icon={<Users size={40} />}
               title="Nenhum membro encontrado"
@@ -267,7 +302,7 @@ export default function Equipe() {
         icon={<UserPlus size={20} color="var(--brand)" />}
         footer={<>
           <Btn onClick={() => setOpen(false)}>Cancelar</Btn>
-          <Btn variant="primary" onClick={salvar}>{editId ? 'Salvar alterações' : 'Adicionar membro'}</Btn>
+          <Btn variant="primary" onClick={salvar} disabled={saving}>{saving ? 'Salvando...' : (editId ? 'Salvar alterações' : 'Adicionar membro')}</Btn>
         </>}
       >
         <div className="form-row">
@@ -288,14 +323,32 @@ export default function Equipe() {
         </Field>
 
         {form.role === 'vendedor' && (
-          <Field label="Comissão fixa por venda (R$)" hint="Valor fixo pago por venda fechada (Tarefa 31)">
-            <input type="number" step="0.01" min="0" value={form.comissaoFixa} onChange={(e) => set({ comissaoFixa: e.target.value })} />
-          </Field>
+          <div className="form-row">
+            <Field label="Comissão fixa por venda (R$)" hint="Valor fixo pago por venda fechada">
+              <input type="number" step="0.01" min="0" value={form.comissaoFixa} onChange={(e) => set({ comissaoFixa: e.target.value })} />
+            </Field>
+            <Field label="Comissão recorrente (%)" hint="Percentual sobre a mensalidade, todo mês">
+              <input type="number" step="0.1" min="0" value={form.comissaoRecorrentePct} onChange={(e) => set({ comissaoRecorrentePct: e.target.value })} />
+            </Field>
+          </div>
         )}
         {form.role === 'tecnico' && (
-          <Field label="Valor por km rodado (R$)" hint="Usado no cálculo de comissão por deslocamento (Tarefa 31)">
-            <input type="number" step="0.01" min="0" value={form.valorKm} onChange={(e) => set({ valorKm: e.target.value })} />
-          </Field>
+          <>
+            <div className="form-row-3">
+              <Field label="Valor instalação (R$)">
+                <input type="number" step="0.01" min="0" value={form.valorInstalacao} onChange={(e) => set({ valorInstalacao: e.target.value })} />
+              </Field>
+              <Field label="Valor manutenção (R$)">
+                <input type="number" step="0.01" min="0" value={form.valorManutencao} onChange={(e) => set({ valorManutencao: e.target.value })} />
+              </Field>
+              <Field label="Valor desinstalação (R$)">
+                <input type="number" step="0.01" min="0" value={form.valorDesinstalacao} onChange={(e) => set({ valorDesinstalacao: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Valor por km rodado (R$)" hint="Usado no cálculo de comissão por deslocamento">
+              <input type="number" step="0.01" min="0" value={form.valorKm} onChange={(e) => set({ valorKm: e.target.value })} />
+            </Field>
+          </>
         )}
 
         <div className="divider" />

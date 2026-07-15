@@ -3,7 +3,8 @@ import {
   Plus, Wallet, Receipt, Coins, DollarSign, TrendingUp,
   Check, Trash2, Layers, Calculator,
 } from 'lucide-react'
-import { useStore, actions, clientName } from '../data/store.js'
+import { api, clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, isOverdue, todayISO, uid } from '../lib/format.js'
 import {
@@ -53,7 +54,7 @@ const emptyPagar = () => ({ descricao: '', categoria: 'fornecedores', valor: '',
 const emptyDespesa = () => ({ descricao: '', categoria: 'fornecedores', valor: '', data: todayISO() })
 
 export default function Financeiro() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['contasReceber', 'contasPagar', 'despesas', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
 
@@ -106,58 +107,83 @@ export default function Financeiro() {
   const totalDespesas = despesas.reduce((s, d) => s + (d.valor || 0), 0)
 
   // ---------- Ações ----------
-  const marcarPago = (coll, item) => {
-    actions.patch(coll, item.id, { status: 'pago', pagoEm: todayISO() })
-    actions.log(user.id, 'baixar', coll === 'contasReceber' ? 'conta a receber' : 'conta a pagar', `${item.descricao} · ${BRL(item.valor)}`)
-    toast('Baixa registrada com sucesso')
+  const marcarPago = async (coll, item) => {
+    try {
+      await api[coll].update(item.id, { status: 'pago', pagoEm: todayISO() })
+      logAudit(user.id, 'baixar', coll === 'contasReceber' ? 'conta a receber' : 'conta a pagar', `${item.descricao} · ${BRL(item.valor)}`)
+      toast('Baixa registrada com sucesso')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
-  const excluir = (coll, item, entidade) => {
-    actions.remove(coll, item.id)
-    actions.log(user.id, 'excluir', entidade, item.descricao)
-    toast('Lançamento removido')
+  const excluir = async (coll, item, entidade) => {
+    try {
+      await api[coll].remove(item.id)
+      logAudit(user.id, 'excluir', entidade, item.descricao)
+      toast('Lançamento removido')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const salvarReceber = () => {
+  const salvarReceber = async () => {
     if (!formR.clientId) { toast('Selecione o cliente', 'error'); return }
     if (!formR.descricao.trim()) { toast('Informe a descrição', 'error'); return }
     const valor = +formR.valor
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
-    actions.add('contasReceber', {
-      id: uid('cr'), clientId: formR.clientId, descricao: formR.descricao.trim(),
-      categoria: formR.categoria, valor, vencimento: formR.vencimento, status: 'aberto',
-    })
-    actions.log(user.id, 'criar', 'conta a receber', `${formR.descricao.trim()} · ${BRL(valor)}`)
-    toast('Conta a receber adicionada')
-    setOpenR(false)
-    setFormR(emptyReceber())
+    try {
+      await api.contasReceber.insert({
+        id: uid('cr'), clientId: formR.clientId, descricao: formR.descricao.trim(),
+        categoria: formR.categoria, valor, vencimento: formR.vencimento, status: 'aberto',
+      })
+      logAudit(user.id, 'criar', 'conta a receber', `${formR.descricao.trim()} · ${BRL(valor)}`)
+      toast('Conta a receber adicionada')
+      setOpenR(false)
+      setFormR(emptyReceber())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const salvarPagar = () => {
+  const salvarPagar = async () => {
     if (!formP.descricao.trim()) { toast('Informe a descrição', 'error'); return }
     const valor = +formP.valor
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
-    actions.add('contasPagar', {
-      id: uid('cp'), descricao: formP.descricao.trim(), categoria: formP.categoria,
-      valor, vencimento: formP.vencimento, status: 'aberto',
-    })
-    actions.log(user.id, 'criar', 'conta a pagar', `${formP.descricao.trim()} · ${BRL(valor)}`)
-    toast('Conta a pagar adicionada')
-    setOpenP(false)
-    setFormP(emptyPagar())
+    try {
+      await api.contasPagar.insert({
+        id: uid('cp'), descricao: formP.descricao.trim(), categoria: formP.categoria,
+        valor, vencimento: formP.vencimento, status: 'aberto',
+      })
+      logAudit(user.id, 'criar', 'conta a pagar', `${formP.descricao.trim()} · ${BRL(valor)}`)
+      toast('Conta a pagar adicionada')
+      setOpenP(false)
+      setFormP(emptyPagar())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const salvarDespesa = () => {
+  const salvarDespesa = async () => {
     if (!formD.descricao.trim()) { toast('Informe a descrição', 'error'); return }
     const valor = +formD.valor
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
-    actions.add('despesas', {
-      id: uid('de'), descricao: formD.descricao.trim(), categoria: formD.categoria,
-      valor, data: formD.data,
-    })
-    actions.log(user.id, 'criar', 'despesa', `${formD.descricao.trim()} · ${catLabel(formD.categoria)} · ${BRL(valor)}`)
-    toast('Despesa cadastrada')
-    setOpenD(false)
-    setFormD(emptyDespesa())
+    try {
+      await api.despesas.insert({
+        id: uid('de'), descricao: formD.descricao.trim(), categoria: formD.categoria,
+        valor, data: formD.data,
+      })
+      logAudit(user.id, 'criar', 'despesa', `${formD.descricao.trim()} · ${catLabel(formD.categoria)} · ${BRL(valor)}`)
+      toast('Despesa cadastrada')
+      setOpenD(false)
+      setFormD(emptyDespesa())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const statusOptions = [

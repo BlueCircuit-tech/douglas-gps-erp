@@ -7,7 +7,8 @@ import {
   BarChart3, Download, FileText, DollarSign, Coins, TrendingUp,
   Wrench, CheckCircle2, MapPin, Receipt,
 } from 'lucide-react'
-import { useStore, actions, clientName } from '../data/store.js'
+import { clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, num, fmtDate, todayISO } from '../lib/format.js'
 import {
@@ -33,7 +34,7 @@ function ultimosMeses(n) {
 const mesDe = (iso) => (iso || '').slice(0, 7)
 
 export default function Relatorios() {
-  const db = useStore()
+  const { db } = useCollections(['contasReceber', 'despesas', 'clients', 'users', 'ordens', 'comissoes'])
   const { user } = useAuth()
   const toast = useToast()
   const [tab, setTab] = useState('financeiro')
@@ -95,12 +96,12 @@ export default function Relatorios() {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
     toast('CSV exportado com sucesso')
-    actions.log(user.id, 'exportar', 'relatório', 'Exportou relatório financeiro (CSV)')
+    logAudit(user.id, 'exportar', 'relatório', 'Exportou relatório financeiro (CSV)')
   }
 
   const exportPDF = () => {
     toast('Exportação em PDF em desenvolvimento (stub)')
-    actions.log(user.id, 'exportar', 'relatório', 'Solicitou relatório financeiro (PDF)')
+    logAudit(user.id, 'exportar', 'relatório', 'Solicitou relatório financeiro (PDF)')
   }
 
   // ---------- OPERACIONAL ----------

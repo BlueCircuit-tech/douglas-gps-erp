@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import {
   Receipt, Plus, Copy, Eye, Check, AlertTriangle, Wallet, Coins, FileText, ShieldCheck,
 } from 'lucide-react'
-import { useStore, actions, clientName } from '../data/store.js'
+import { api, clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, todayISO } from '../lib/format.js'
 import {
@@ -29,7 +30,7 @@ const barras = (linha) => {
 const emptyForm = () => ({ clientId: '', valor: '', vencimento: todayISO() })
 
 export default function Boletos() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['boletos', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
 
@@ -54,7 +55,7 @@ export default function Boletos() {
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
-  const emitir = () => {
+  const emitir = async () => {
     if (!form.clientId) { toast('Selecione o cliente', 'error'); return }
     const valor = Number(form.valor)
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
@@ -68,18 +69,28 @@ export default function Boletos() {
       linhaDigitavel: genLinha(),
       nossoNumero: genNosso(),
     }
-    actions.add('boletos', novo)
-    actions.log(user.id, 'emitir', 'boleto', `Boleto ${BRL(valor)} para ${clientName(form.clientId)}`)
-    toast('Boleto emitido (simulação Asaas)')
-    setOpen(false)
-    setForm(emptyForm())
+    try {
+      await api.boletos.insert(novo)
+      logAudit(user.id, 'emitir', 'boleto', `Boleto ${BRL(valor)} para ${clientName(form.clientId)}`)
+      toast('Boleto emitido (simulação Asaas)')
+      setOpen(false)
+      setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const marcarPago = (b) => {
-    actions.patch('boletos', b.id, { status: 'pago', pagoEm: todayISO() })
-    actions.log(user.id, 'baixar', 'boleto', `Boleto ${b.nossoNumero} de ${clientName(b.clientId)} marcado como pago`)
-    toast('Boleto baixado como pago')
-    if (ver && ver.id === b.id) setVer({ ...b, status: 'pago', pagoEm: todayISO() })
+  const marcarPago = async (b) => {
+    try {
+      await api.boletos.update(b.id, { status: 'pago', pagoEm: todayISO() })
+      logAudit(user.id, 'baixar', 'boleto', `Boleto ${b.nossoNumero} de ${clientName(b.clientId)} marcado como pago`)
+      toast('Boleto baixado como pago')
+      if (ver && ver.id === b.id) setVer({ ...b, status: 'pago', pagoEm: todayISO() })
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const copiar = async (linha) => {

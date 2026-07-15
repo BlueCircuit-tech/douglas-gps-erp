@@ -1,18 +1,20 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, TrendingUp, Coins, Target, Users, UserPlus } from 'lucide-react'
-import { useStore, actions, userName } from '../data/store.js'
+import { Plus, TrendingUp, Coins, Target, Users, UserPlus, MessageSquare, Boxes, Send } from 'lucide-react'
+import { clientsApi, userName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, pct, maskPhone, uid } from '../lib/format.js'
+import { BRL, pct, maskPhone, fmtDateTime, uid } from '../lib/format.js'
 import {
   PageHead, Card, Btn, Badge, Stat, Field, Modal, EmptyState, useToast,
 } from '../components/ui.jsx'
 import { FUNNEL } from '../data/seed.js'
+import { mensalidadeTotal } from '../lib/recorrencia.js'
 
-const emptyLead = () => ({ nome: '', whatsapp: '', valorMensal: 79.9, vendedorId: '' })
+const emptyLead = () => ({ nome: '', whatsapp: '', valorMensal: 79.9, quantidadeEquipamentos: 1, vendedorId: '' })
 
 export default function Funil() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['clients', 'users'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
@@ -21,6 +23,8 @@ export default function Funil() {
   const [overCol, setOverCol] = useState(null)
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState(emptyLead)
+  const [conversaLead, setConversaLead] = useState(null) // id do lead com modal de conversas aberto
+  const [novaConversa, setNovaConversa] = useState('')
 
   const vendedores = (db.users || []).filter((u) => u.role === 'vendedor')
 
@@ -35,57 +39,86 @@ export default function Funil() {
     return map
   }, [db])
 
-  // KPIs do topo.
+  // KPIs do topo (usa a mensalidade total = valor × qtd equipamentos).
   const kpis = useMemo(() => {
     const clients = db.clients || []
     const abertos = clients.filter((c) => c.stage !== 'fechado' && c.stage !== 'perdido')
-    const pipeline = abertos.reduce((s, c) => s + (Number(c.valorMensal) || 0), 0)
+    const pipeline = abertos.reduce((s, c) => s + mensalidadeTotal(c), 0)
     const fechados = clients.filter((c) => c.stage === 'fechado').length
     const total = clients.length
     const conversao = total ? (fechados / total) * 100 : 0
-    const ganhoMensal = clients
-      .filter((c) => c.stage === 'fechado')
-      .reduce((s, c) => s + (Number(c.valorMensal) || 0), 0)
+    const ganhoMensal = clients.filter((c) => c.stage === 'fechado').reduce((s, c) => s + mensalidadeTotal(c), 0)
     return { pipeline, fechados, total, conversao, ganhoMensal, abertos: abertos.length }
   }, [db])
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
   // ---------- Drag & drop nativo ----------
-  const onDrop = (colId) => {
+  const onDrop = async (colId) => {
     setOverCol(null)
     const id = dragId
     setDragId(null)
     if (!id) return
     const cli = (db.clients || []).find((c) => c.id === id)
     if (!cli || cli.stage === colId) return
-    const patch = { stage: colId, ...(colId === 'fechado' ? { status: 'ativo' } : {}) }
-    actions.patch('clients', id, patch)
+    const patch = { stage: colId, ...(colId === 'fechado' ? { status: 'ativo', ativo: true } : {}) }
     const stageLabel = FUNNEL.find((f) => f.id === colId)?.label || colId
-    actions.log(user.id, 'mover', 'funil', `${cli.nomeFantasia || cli.razaoSocial} → ${stageLabel}`)
-    toast(`Movido para ${stageLabel}`)
+    try {
+      await clientsApi.update(id, patch)
+      logAudit(user.id, 'mover', 'funil', `${cli.nomeFantasia || cli.razaoSocial} → ${stageLabel}`)
+      toast(`Movido para ${stageLabel}`)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const salvarLead = () => {
+  const salvarLead = async () => {
     if (!form.nome.trim()) { toast('Informe o nome do lead', 'error'); return }
     const novo = {
       id: uid('c'),
-      tipo: 'PF', stage: 'novo', status: 'lead',
+      tipo: 'PF', stage: 'novo', status: 'lead', ativo: false,
       razaoSocial: form.nome.trim(), nomeFantasia: '',
       cpfCnpj: '', ie: '', email: '', whatsapp: form.whatsapp,
-      aniversario: '',
+      telefoneFixo: '', emailFinanceiro: '', whatsappFinanceiro: '', site: '',
       endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '' },
+      contatos: [], historicoVendas: [], conversas: [],
       planoId: 'p_basico', vendedorId: form.vendedorId,
-      valorMensal: Number(form.valorMensal) || 0, valorInstalacao: 150, valorMonitoramento: 0,
-      observacoes: '', criadoEm: new Date().toISOString().slice(0, 10),
+      valorMensal: Number(form.valorMensal) || 0, quantidadeEquipamentos: Number(form.quantidadeEquipamentos) || 0,
+      prazoMeses: 12, valorInstalacao: 150,
+      observacoes: '', criadoEm: new Date().toISOString().slice(0, 10), contratoInicio: '',
     }
-    actions.add('clients', novo)
-    actions.log(user.id, 'criar', 'lead', `Novo lead no funil: ${form.nome.trim()}`)
-    toast('Lead adicionado ao funil')
-    setOpen(false)
-    setForm(emptyLead())
+    try {
+      await clientsApi.insert(novo)
+      logAudit(user.id, 'criar', 'lead', `Novo lead no funil: ${form.nome.trim()}`)
+      toast('Lead adicionado ao funil')
+      setOpen(false)
+      setForm(emptyLead())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
+  const abrirConversas = (e, cli) => { e.stopPropagation(); setConversaLead(cli.id); setNovaConversa('') }
+
+  const enviarConversa = async () => {
+    const cli = (db.clients || []).find((c) => c.id === conversaLead)
+    if (!cli) return
+    if (!novaConversa.trim()) { toast('Escreva a conversa', 'error'); return }
+    const registro = { id: uid('cv'), autor: user.id, data: new Date().toISOString(), texto: novaConversa.trim() }
+    try {
+      await clientsApi.update(cli.id, { conversas: [...(cli.conversas || []), registro] })
+      logAudit(user.id, 'conversa', 'funil', `Conversa registrada — ${cli.nomeFantasia || cli.razaoSocial}`)
+      toast('Conversa registrada')
+      setNovaConversa('')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  const leadConversas = (db.clients || []).find((c) => c.id === conversaLead)
   const semClientes = !(db.clients || []).length
 
   return (
@@ -111,7 +144,7 @@ export default function Funil() {
         <div className="kanban" style={{ marginTop: 16 }}>
           {FUNNEL.map((col) => {
             const cards = porStage[col.id] || []
-            const soma = cards.reduce((s, c) => s + (Number(c.valorMensal) || 0), 0)
+            const soma = cards.reduce((s, c) => s + mensalidadeTotal(c), 0)
             return (
               <div
                 key={col.id}
@@ -131,27 +164,38 @@ export default function Funil() {
                   Total: <span className="bold mono">{BRL(soma)}</span>/mês
                 </div>
                 <div className="kanban-col-body">
-                  {cards.map((c) => (
-                    <div
-                      key={c.id}
-                      className={`kanban-card ${dragId === c.id ? 'dragging' : ''}`}
-                      draggable
-                      onDragStart={() => setDragId(c.id)}
-                      onDragEnd={() => { setDragId(null); setOverCol(null) }}
-                      onClick={() => navigate(`/clientes/${c.id}`)}
-                    >
-                      <div className="between" style={{ alignItems: 'flex-start', gap: 8 }}>
-                        <div className="bold" style={{ fontSize: 13.5 }}>{c.nomeFantasia || c.razaoSocial}</div>
-                        <Badge tone={c.tipo === 'PJ' ? 'blue' : 'purple'}>{c.tipo}</Badge>
+                  {cards.map((c) => {
+                    const nConversas = (c.conversas || []).length
+                    return (
+                      <div
+                        key={c.id}
+                        className={`kanban-card ${dragId === c.id ? 'dragging' : ''}`}
+                        draggable
+                        onDragStart={() => setDragId(c.id)}
+                        onDragEnd={() => { setDragId(null); setOverCol(null) }}
+                        onClick={() => navigate(`/clientes/${c.id}`)}
+                      >
+                        <div className="between" style={{ alignItems: 'flex-start', gap: 8 }}>
+                          <div className="bold" style={{ fontSize: 13.5 }}>{c.nomeFantasia || c.razaoSocial}</div>
+                          <Badge tone={c.tipo === 'PJ' ? 'blue' : 'purple'}>{c.tipo}</Badge>
+                        </div>
+                        <div className="mono bold" style={{ fontSize: 15, marginTop: 6, color: 'var(--green)' }}>
+                          {BRL(mensalidadeTotal(c))}<span className="mut" style={{ fontSize: 11, fontWeight: 400 }}>/mês</span>
+                        </div>
+                        <div className="mut flex gap-6" style={{ fontSize: 12, marginTop: 6, alignItems: 'center' }}>
+                          <Boxes size={13} /> {c.quantidadeEquipamentos ?? 0} equip.
+                        </div>
+                        <div className="between" style={{ marginTop: 8, alignItems: 'center' }}>
+                          <div className="mut flex gap-6" style={{ fontSize: 12, alignItems: 'center' }}>
+                            <Users size={13} /> {userName(c.vendedorId)}
+                          </div>
+                          <button className="btn btn-ghost btn-sm" onClick={(e) => abrirConversas(e, c)} title="Histórico de conversas" style={{ padding: '4px 8px' }}>
+                            <MessageSquare size={14} /> {nConversas}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mono bold" style={{ fontSize: 15, marginTop: 6, color: 'var(--green)' }}>
-                        {BRL(c.valorMensal)}<span className="mut" style={{ fontSize: 11, fontWeight: 400 }}>/mês</span>
-                      </div>
-                      <div className="mut flex gap-6" style={{ fontSize: 12, marginTop: 8, alignItems: 'center' }}>
-                        <Users size={13} /> {userName(c.vendedorId)}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {!cards.length && (
                     <div className="mut center" style={{ fontSize: 12, padding: '18px 4px' }}>
                       Solte um card aqui
@@ -164,6 +208,7 @@ export default function Funil() {
         </div>
       )}
 
+      {/* Modal: Novo Lead */}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -178,19 +223,60 @@ export default function Funil() {
           <Field label="WhatsApp">
             <input value={form.whatsapp} onChange={(e) => set({ whatsapp: e.target.value })} placeholder={maskPhone('11999990000')} />
           </Field>
-          <Field label="Valor mensal estimado (R$)">
-            <input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} />
+          <Field label="Quantidade de equipamentos">
+            <input type="number" step="1" min="0" value={form.quantidadeEquipamentos} onChange={(e) => set({ quantidadeEquipamentos: +e.target.value })} />
           </Field>
         </div>
-        <Field label="Vendedor responsável">
-          <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
-            <option value="">Selecione</option>
-            {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-        </Field>
-        <div className="mut" style={{ fontSize: 12, marginTop: 4 }}>
-          O lead entra no estágio <span className="bold">Novo Lead</span> com status <span className="bold">lead</span>.
+        <div className="form-row">
+          <Field label="Valor mensal por equipamento (R$)">
+            <input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} />
+          </Field>
+          <Field label="Vendedor responsável">
+            <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
+              <option value="">Selecione</option>
+              {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </Field>
         </div>
+        <div className="mut" style={{ fontSize: 12, marginTop: 4 }}>
+          Mensalidade estimada: <span className="bold mono">{BRL((Number(form.valorMensal) || 0) * (Number(form.quantidadeEquipamentos) || 0))}</span>/mês.
+          O lead entra no estágio <span className="bold">Novo Lead</span>.
+        </div>
+      </Modal>
+
+      {/* Modal: Histórico de conversas */}
+      <Modal
+        open={!!conversaLead}
+        onClose={() => setConversaLead(null)}
+        title={`Conversas — ${leadConversas ? (leadConversas.nomeFantasia || leadConversas.razaoSocial) : ''}`}
+        icon={<MessageSquare size={20} color="var(--brand)" />}
+        footer={<Btn onClick={() => setConversaLead(null)}>Fechar</Btn>}
+      >
+        {leadConversas && (
+          <>
+            <div className="card-pad" style={{ padding: 0, marginBottom: 12 }}>
+              {(leadConversas.conversas || []).length ? (
+                <div className="timeline">
+                  {(leadConversas.conversas || []).slice().sort((a, b) => new Date(b.data) - new Date(a.data)).map((cv) => (
+                    <div key={cv.id} className="timeline-item">
+                      <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                        <Badge tone="blue">{userName(cv.autor)}</Badge>
+                        <span className="mut" style={{ fontSize: 12 }}>{fmtDateTime(cv.data)}</span>
+                      </div>
+                      <div style={{ fontSize: 13.5, marginTop: 4 }}>{cv.texto}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={<MessageSquare size={36} />} title="Sem conversas" sub="Registre a primeira conversa com o cliente." />
+              )}
+            </div>
+            <Field label="Registrar nova conversa">
+              <textarea rows={3} value={novaConversa} onChange={(e) => setNovaConversa(e.target.value)} placeholder="Resumo da conversa, próximos passos..." />
+            </Field>
+            <Btn variant="primary" icon={<Send size={15} />} onClick={enviarConversa}>Registrar conversa</Btn>
+          </>
+        )}
       </Modal>
     </>
   )

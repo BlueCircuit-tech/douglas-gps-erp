@@ -3,15 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Pencil, Cake, MapPin, Phone, Mail, FileText, Download, Plus,
   MessageCircle, Smartphone, Wallet, User, ClipboardList, DollarSign, Wrench,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, Users2, Globe, History, Boxes, TrendingUp, TrendingDown,
 } from 'lucide-react'
-import { useStore, actions, byId, userName } from '../data/store.js'
+import { api, clientsApi, syncRecorrencia, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, fmtDateTime, maskDoc, maskPhone, uid } from '../lib/format.js'
 import {
   PageHead, Card, CardHead, Btn, Badge, Avatar, Stat, Field, EmptyState, Modal,
   Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
+import { PessoaForm, fromPessoa } from '../components/PessoaForm.jsx'
+import { mensalidadeTotal } from '../lib/recorrencia.js'
 
 // Canais de comunicação (Tarefas 9, 15)
 const CANAIS = {
@@ -43,30 +46,21 @@ const proxAniversario = (iso) => {
   return Math.round((alvo - hoje) / 86400000)
 }
 
-const fromClient = (c) => ({
-  tipo: c.tipo || 'PJ', status: c.status || 'lead',
-  razaoSocial: c.razaoSocial || '', nomeFantasia: c.nomeFantasia || '',
-  cpfCnpj: c.cpfCnpj || '', ie: c.ie || '',
-  email: c.email || '', whatsapp: c.whatsapp || '', aniversario: c.aniversario || '',
-  endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', ...(c.endereco || {}) },
-  planoId: c.planoId || '', vendedorId: c.vendedorId || '',
-  valorMensal: c.valorMensal ?? 0, valorInstalacao: c.valorInstalacao ?? 0, valorMonitoramento: c.valorMonitoramento ?? 0,
-  observacoes: c.observacoes || '',
-})
-
 export default function ClienteDetalhe() {
   const { id } = useParams()
-  const db = useStore()
+  const { db, loading, refetch } = useCollections(['clients', 'planos', 'users', 'documentos', 'ordens', 'contasReceber', 'interacoes', 'equipamentos', 'chips'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
 
-  const cliente = byId('clients', id)
+  const cliente = (db.clients || []).find((c) => c.id === id)
+  const userName = (uid2) => (db.users || []).find((u) => u.id === uid2)?.name || '—'
   const [tab, setTab] = useState('geral')
+  const [saving, setSaving] = useState(false)
 
   // Modais
   const [editOpen, setEditOpen] = useState(false)
-  const [form, setForm] = useState(() => (cliente ? fromClient(cliente) : null))
+  const [form, setForm] = useState(() => (cliente ? fromPessoa(cliente, 'cliente') : null))
   const [docOpen, setDocOpen] = useState(false)
   const [docForm, setDocForm] = useState({ tipo: 'Contrato', nome: '' })
   const [waOpen, setWaOpen] = useState(false)
@@ -89,72 +83,87 @@ export default function ClienteDetalhe() {
     () => (db.interacoes || []).filter((i) => i.clientId === id).sort((a, b) => new Date(b.data) - new Date(a.data)),
     [db, id],
   )
+  const equipamentos = useMemo(
+    () => (db.equipamentos || []).filter((e) => e.clientId === id),
+    [db, id],
+  )
 
   if (!cliente) {
     return (
-      <PageHead title="Cliente não encontrado" subtitle="O cliente solicitado não existe ou foi removido.">
+      <PageHead title={loading ? 'Carregando...' : 'Cliente não encontrado'} subtitle={loading ? 'Buscando no Supabase.' : 'O cliente solicitado não existe ou foi removido.'}>
         <Btn icon={<ArrowLeft size={16} />} onClick={() => navigate('/clientes')}>Voltar</Btn>
       </PageHead>
     )
   }
 
   const nome = cliente.nomeFantasia || cliente.razaoSocial
-  const plano = byId('planos', cliente.planoId)
-  const vendedores = (db.users || []).filter((u) => u.role === 'vendedor')
+  const plano = (db.planos || []).find((p) => p.id === cliente.planoId)
+  const contatos = cliente.contatos || []
+  const historico = cliente.historicoVendas || []
+  const mensalidade = mensalidadeTotal(cliente)
 
+  const parcelasFuturas = contas.filter((c) => c.categoria === 'mensalidade' && c.status !== 'pago')
   const totalAberto = contas.filter((c) => c.status !== 'pago').reduce((s, c) => s + (c.valor || 0), 0)
   const totalAtrasado = contas.filter((c) => c.status === 'atrasado').reduce((s, c) => s + (c.valor || 0), 0)
   const totalPago = contas.filter((c) => c.status === 'pago').reduce((s, c) => s + (c.valor || 0), 0)
 
-  const diasAniv = proxAniversario(cliente.aniversario)
+  const abrirEdicao = () => { setForm(fromPessoa(cliente, 'cliente')); setEditOpen(true) }
 
-  // ---------- Form helpers (edição) ----------
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }))
-  const setEnd = (patch) => setForm((f) => ({ ...f, endereco: { ...f.endereco, ...patch } }))
-  const onPlano = (planoId) => {
-    const p = byId('planos', planoId)
-    set({
-      planoId,
-      valorMensal: p?.valorMensal ?? form.valorMensal,
-      valorInstalacao: p?.valorInstalacao ?? form.valorInstalacao,
-      valorMonitoramento: p?.valorMonitoramento ?? 0,
-    })
-  }
-
-  const abrirEdicao = () => { setForm(fromClient(cliente)); setEditOpen(true) }
-
-  const salvarEdicao = () => {
+  const salvarEdicao = async () => {
     if (!form.razaoSocial.trim()) { toast('Informe o nome / razão social', 'error'); return }
-    actions.patch('clients', cliente.id, { ...form })
-    actions.log(user.id, 'editar', 'cliente', `Editou ${form.nomeFantasia || form.razaoSocial}`)
-    toast('Cliente atualizado com sucesso')
-    setEditOpen(false)
+    const next = { ...cliente, ...form }
+    if (next.ativo && !next.contratoInicio) next.contratoInicio = new Date().toISOString().slice(0, 10)
+    setSaving(true)
+    try {
+      // Sincroniza a recorrência financeira (gera/reajusta parcelas + evento de histórico).
+      const evento = await syncRecorrencia(cliente, next)
+      if (evento) next.historicoVendas = [evento, ...(cliente.historicoVendas || [])]
+      await clientsApi.update(cliente.id, next)
+      logAudit(user.id, 'editar', 'cliente', `Editou ${form.nomeFantasia || form.razaoSocial}`)
+      toast('Cliente atualizado com sucesso')
+      setEditOpen(false)
+      refetch()
+    } catch (e) {
+      toast('Erro ao salvar: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const adicionarDoc = () => {
+  const adicionarDoc = async () => {
     if (!docForm.nome.trim()) { toast('Informe o nome do documento', 'error'); return }
-    actions.add('documentos', {
-      id: uid('doc'), clientId: cliente.id, tipo: docForm.tipo,
-      nome: docForm.nome.trim(), data: new Date().toISOString().slice(0, 10),
-    })
-    actions.log(user.id, 'adicionar', 'documento', `${docForm.tipo}: ${docForm.nome.trim()} (${nome})`)
-    toast('Documento adicionado')
-    setDocOpen(false)
-    setDocForm({ tipo: 'Contrato', nome: '' })
+    try {
+      await api.documentos.insert({
+        id: uid('doc'), clientId: cliente.id, tipo: docForm.tipo,
+        nome: docForm.nome.trim(), data: new Date().toISOString().slice(0, 10),
+      })
+      logAudit(user.id, 'adicionar', 'documento', `${docForm.tipo}: ${docForm.nome.trim()} (${nome})`)
+      toast('Documento adicionado')
+      setDocOpen(false)
+      setDocForm({ tipo: 'Contrato', nome: '' })
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const baixarDoc = (d) => toast(`Baixando ${d.nome}...`)
 
-  const enviarWhats = () => {
+  const enviarWhats = async () => {
     if (!waMsg.trim()) { toast('Escreva a mensagem', 'error'); return }
-    actions.add('interacoes', {
-      id: uid('in'), clientId: cliente.id, canal: 'whatsapp',
-      descricao: waMsg.trim(), data: new Date().toISOString(),
-    })
-    actions.log(user.id, 'comunicar', 'cliente', `WhatsApp para ${nome}`)
-    toast('Mensagem registrada e enviada')
-    setWaOpen(false)
-    setWaMsg('')
+    try {
+      await api.interacoes.insert({
+        id: uid('in'), clientId: cliente.id, canal: 'whatsapp',
+        descricao: waMsg.trim(), data: new Date().toISOString(),
+      })
+      logAudit(user.id, 'comunicar', 'cliente', `WhatsApp para ${nome}`)
+      toast('Mensagem registrada e enviada')
+      setWaOpen(false)
+      setWaMsg('')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   return (
@@ -174,7 +183,7 @@ export default function ClienteDetalhe() {
           <div>
             <div className="flex gap-8" style={{ alignItems: 'center' }}>
               <span className="bold" style={{ fontSize: 18 }}>{nome}</span>
-              <StatusBadge status={cliente.status} />
+              <StatusBadge status={cliente.ativo ? 'ativo' : (cliente.status === 'lead' ? 'lead' : 'inativo')} />
               <Badge tone={cliente.tipo === 'PJ' ? 'blue' : 'purple'}>{cliente.tipo}</Badge>
             </div>
             <div className="mut" style={{ fontSize: 13, marginTop: 2 }}>
@@ -183,8 +192,8 @@ export default function ClienteDetalhe() {
           </div>
           <div className="spacer" />
           <div className="right">
-            <div className="mut" style={{ fontSize: 12 }}>Mensalidade</div>
-            <div className="bold mono" style={{ fontSize: 20 }}>{BRL(cliente.valorMensal)}</div>
+            <div className="mut" style={{ fontSize: 12 }}>Mensalidade ({cliente.quantidadeEquipamentos ?? 0} equip.)</div>
+            <div className="bold mono" style={{ fontSize: 20 }}>{BRL(mensalidade)}</div>
           </div>
         </div>
       </Card>
@@ -195,7 +204,9 @@ export default function ClienteDetalhe() {
           onChange={setTab}
           options={[
             { value: 'geral', label: 'Visão geral' },
-            { value: 'documentos', label: 'Histórico de Documentos' },
+            { value: 'contatos', label: `Contatos (${contatos.length})` },
+            { value: 'historico', label: 'Histórico de vendas' },
+            { value: 'documentos', label: 'Documentos' },
             { value: 'ordens', label: 'Ordens de Serviço' },
             { value: 'financeiro', label: 'Financeiro' },
             { value: 'comunicacoes', label: 'Comunicações' },
@@ -215,9 +226,44 @@ export default function ClienteDetalhe() {
                 <Row label={cliente.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>{maskDoc(cliente.cpfCnpj)}</Row>
                 <Row label="Inscrição estadual">{cliente.ie || '—'}</Row>
                 <Row label="WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(cliente.whatsapp)}</span></Row>
+                <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(cliente.telefoneFixo) || '—'}</span></Row>
                 <Row label="E-mail"><span className="flex gap-6"><Mail size={13} className="mut" />{cliente.email || '—'}</span></Row>
+                <Row label="Site"><span className="flex gap-6"><Globe size={13} className="mut" />{cliente.site || '—'}</span></Row>
                 <Row label="Endereço"><span className="flex gap-6" style={{ textAlign: 'right' }}><MapPin size={13} className="mut" />{fmtEndereco(cliente.endereco)}</span></Row>
                 <Row label="CEP">{cliente.endereco?.cep || '—'}</Row>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHead title="Financeiro do cliente" icon={<Mail size={18} />} />
+              <div className="card-pad col gap-12">
+                <Row label="E-mail financeiro">{cliente.emailFinanceiro || '—'}</Row>
+                <Row label="WhatsApp financeiro">{maskPhone(cliente.whatsappFinanceiro) || '—'}</Row>
+              </div>
+            </Card>
+
+            <Card>
+              <CardHead title="Equipamentos vinculados" sub={`${equipamentos.length} equipamento(s)`} icon={<Boxes size={18} />}>
+                <Btn size="sm" icon={<Boxes size={14} />} onClick={() => navigate('/estoque')}>Ver no estoque</Btn>
+              </CardHead>
+              <div className="table-wrap">
+                <table className="tbl">
+                  <thead><tr><th>Modelo</th><th>Nº de série</th><th>Chip</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {equipamentos.map((e) => {
+                      const chip = (db.chips || []).find((c) => c.id === e.chipId)
+                      return (
+                        <tr key={e.id}>
+                          <td className="bold">{e.modelo}</td>
+                          <td className="mono">{e.serial}</td>
+                          <td className="mono">{chip ? `${chip.operadora} · ${maskPhone(chip.linha)}` : '—'}</td>
+                          <td><StatusBadge status={e.status} /></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {!equipamentos.length && <EmptyState icon={<Boxes size={36} />} title="Nenhum equipamento vinculado" sub="Vincule equipamentos na tela de Estoque." />}
               </div>
             </Card>
 
@@ -230,38 +276,92 @@ export default function ClienteDetalhe() {
           </div>
 
           <div className="col gap-16">
-            {/* Destaque: aniversário (Tarefa 20) */}
-            <Card pad style={{ background: 'var(--purple-bg)', borderColor: '#e9d5ff' }}>
-              <div className="flex gap-12" style={{ alignItems: 'center' }}>
-                <div className="stat-ico" style={{ background: 'var(--purple)', color: '#fff' }}><Cake size={20} /></div>
-                <div>
-                  <div className="mut" style={{ fontSize: 12 }}>Data de aniversário</div>
-                  <div className="bold" style={{ fontSize: 16 }}>{fmtDate(cliente.aniversario)}</div>
-                </div>
-              </div>
-              <div className="mut" style={{ fontSize: 12.5, marginTop: 10 }}>
-                {diasAniv == null
-                  ? 'Sem data cadastrada para mensagem automática.'
-                  : diasAniv === 0
-                    ? '🎉 É hoje! Mensagem de felicitação será enviada automaticamente.'
-                    : `Faltam ${diasAniv} dia(s) — mensagem automática programada (Tarefa 20).`}
-              </div>
-            </Card>
-
             <Card>
               <CardHead title="Plano e valores" icon={<Wallet size={18} />} />
               <div className="card-pad col gap-12">
                 <Row label="Plano">{plano?.nome || '—'}</Row>
-                <Row label="Mensalidade"><b className="mono">{BRL(cliente.valorMensal)}</b></Row>
+                <Row label="Valor por equipamento"><b className="mono">{BRL(cliente.valorMensal)}</b></Row>
+                <Row label="Quantidade de equipamentos"><b className="mono">{cliente.quantidadeEquipamentos ?? 0}</b></Row>
+                <Row label="Mensalidade total"><b className="mono">{BRL(mensalidade)}</b></Row>
                 <Row label="Instalação"><b className="mono">{BRL(cliente.valorInstalacao)}</b></Row>
-                <Row label="Monitoramento"><b className="mono">{BRL(cliente.valorMonitoramento)}</b></Row>
                 <div className="divider" />
+                <Row label="Prazo do contrato">{cliente.prazoMeses ? `${cliente.prazoMeses} meses` : '—'}</Row>
+                <Row label="Parcelas em aberto"><b className="mono">{parcelasFuturas.length}</b></Row>
                 <Row label="Vendedor responsável">{userName(cliente.vendedorId)}</Row>
-                <Row label="Situação"><StatusBadge status={cliente.status} /></Row>
+                <Row label="Situação"><StatusBadge status={cliente.ativo ? 'ativo' : (cliente.status === 'lead' ? 'lead' : 'inativo')} /></Row>
               </div>
             </Card>
           </div>
         </div>
+      )}
+
+      {/* ---------------- CONTATOS ---------------- */}
+      {tab === 'contatos' && (
+        <Card style={{ marginTop: 16 }}>
+          <CardHead title="Contatos do cliente" sub={`${contatos.length} de 3`} icon={<Users2 size={18} />} />
+          <div className="card-pad">
+            {contatos.length ? (
+              <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {contatos.map((ct) => {
+                  const dias = proxAniversario(ct.aniversario)
+                  return (
+                    <Card key={ct.id} pad>
+                      <div className="flex gap-10" style={{ alignItems: 'center', marginBottom: 8 }}>
+                        <Avatar name={ct.nome} sm />
+                        <div className="bold">{ct.nome || '—'}</div>
+                      </div>
+                      <div className="col gap-8">
+                        <Row label="CPF">{maskDoc(ct.cpf) || '—'}</Row>
+                        <Row label="RG">{ct.rg || '—'}</Row>
+                        <Row label="Aniversário"><span className="flex gap-6"><Cake size={13} className="mut" />{fmtDate(ct.aniversario)}</span></Row>
+                        <Row label="WhatsApp">{maskPhone(ct.whatsapp) || '—'}</Row>
+                        <Row label="E-mail">{ct.email || '—'}</Row>
+                      </div>
+                      {dias != null && (
+                        <div className="mut" style={{ fontSize: 12, marginTop: 8 }}>
+                          {dias === 0 ? '🎉 Aniversário é hoje!' : `Faltam ${dias} dia(s) para o aniversário.`}
+                        </div>
+                      )}
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState icon={<Users2 size={40} />} title="Nenhum contato cadastrado" sub="Edite o cliente para adicionar até 3 contatos." />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ---------------- HISTÓRICO DE VENDAS ---------------- */}
+      {tab === 'historico' && (
+        <Card style={{ marginTop: 16 }}>
+          <CardHead title="Histórico de vendas e cancelamentos" sub={`${historico.length} evento(s)`} icon={<History size={18} />} />
+          <div className="table-wrap">
+            <table className="tbl">
+              <thead>
+                <tr><th>Data</th><th>Tipo</th><th className="right">Equip.</th><th className="right">Valor unit.</th><th className="right">Mensalidade</th><th>Descrição</th></tr>
+              </thead>
+              <tbody>
+                {historico.map((h) => (
+                  <tr key={h.id}>
+                    <td>{fmtDate(h.data)}</td>
+                    <td>
+                      {h.tipo === 'cancelamento'
+                        ? <Badge tone="red"><TrendingDown size={12} /> Cancelamento</Badge>
+                        : <Badge tone="green"><TrendingUp size={12} /> Venda</Badge>}
+                    </td>
+                    <td className="right mono">{h.quantidade}</td>
+                    <td className="right mono">{BRL(h.valorUnit)}</td>
+                    <td className="right mono bold">{BRL(h.valorMensal)}</td>
+                    <td className="mut">{h.descricao}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!historico.length && <EmptyState icon={<History size={40} />} title="Sem histórico de vendas" sub="Vendas e cancelamentos de equipamentos aparecerão aqui." />}
+          </div>
+        </Card>
       )}
 
       {/* ---------------- HISTÓRICO DE DOCUMENTOS (Tarefa 25) ---------------- */}
@@ -328,7 +428,7 @@ export default function ClienteDetalhe() {
           </div>
 
           <Card style={{ marginTop: 16 }}>
-            <CardHead title="Contas a receber" sub={`${contas.length} lançamento(s)`} icon={<DollarSign size={18} />} />
+            <CardHead title="Contas a receber" sub={`${contas.length} lançamento(s) · ${parcelasFuturas.length} parcela(s) de mensalidade em aberto`} icon={<DollarSign size={18} />} />
             <div className="table-wrap">
               <table className="tbl">
                 <thead>
@@ -387,82 +487,9 @@ export default function ClienteDetalhe() {
         <Modal
           open={editOpen} onClose={() => setEditOpen(false)} size="lg"
           title="Editar cliente" icon={<Pencil size={20} color="var(--brand)" />}
-          footer={<><Btn onClick={() => setEditOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarEdicao}>Salvar alterações</Btn></>}
+          footer={<><Btn onClick={() => setEditOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarEdicao} disabled={saving}>{saving ? 'Salvando...' : 'Salvar alterações'}</Btn></>}
         >
-          <Field label="Tipo de pessoa">
-            <Segmented value={form.tipo} onChange={(v) => set({ tipo: v })} options={[
-              { value: 'PJ', label: 'Pessoa Jurídica (PJ)' }, { value: 'PF', label: 'Pessoa Física (PF)' },
-            ]} />
-          </Field>
-          <div className="form-row">
-            <Field label={form.tipo === 'PJ' ? 'Razão social' : 'Nome completo'} required>
-              <input value={form.razaoSocial} onChange={(e) => set({ razaoSocial: e.target.value })} />
-            </Field>
-            <Field label={form.tipo === 'PJ' ? 'Nome fantasia' : 'Apelido'}>
-              <input value={form.nomeFantasia} onChange={(e) => set({ nomeFantasia: e.target.value })} />
-            </Field>
-          </div>
-          <div className="form-row-3">
-            <Field label={form.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>
-              <input value={form.cpfCnpj} onChange={(e) => set({ cpfCnpj: e.target.value })} placeholder="Somente números" />
-            </Field>
-            <Field label="Inscrição estadual">
-              <input value={form.ie} onChange={(e) => set({ ie: e.target.value })} />
-            </Field>
-            <Field label="Data de aniversário" hint="Mensagens automáticas (Tarefa 20)">
-              <input type="date" value={form.aniversario} onChange={(e) => set({ aniversario: e.target.value })} />
-            </Field>
-          </div>
-          <div className="form-row">
-            <Field label="E-mail"><input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} /></Field>
-            <Field label="Telefone / WhatsApp"><input value={form.whatsapp} onChange={(e) => set({ whatsapp: e.target.value })} /></Field>
-          </div>
-
-          <div className="divider" />
-          <div className="bold soft" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={15} /> Endereço</div>
-          <div className="form-row-3">
-            <Field label="CEP"><input value={form.endereco.cep} onChange={(e) => setEnd({ cep: e.target.value })} /></Field>
-            <Field label="Logradouro"><input value={form.endereco.logradouro} onChange={(e) => setEnd({ logradouro: e.target.value })} /></Field>
-            <Field label="Número"><input value={form.endereco.numero} onChange={(e) => setEnd({ numero: e.target.value })} /></Field>
-          </div>
-          <div className="form-row-3">
-            <Field label="Bairro"><input value={form.endereco.bairro} onChange={(e) => setEnd({ bairro: e.target.value })} /></Field>
-            <Field label="Cidade"><input value={form.endereco.cidade} onChange={(e) => setEnd({ cidade: e.target.value })} /></Field>
-            <Field label="UF"><input maxLength={2} value={form.endereco.uf} onChange={(e) => setEnd({ uf: e.target.value.toUpperCase() })} /></Field>
-          </div>
-
-          <div className="divider" />
-          <div className="form-row">
-            <Field label="Plano">
-              <select value={form.planoId} onChange={(e) => onPlano(e.target.value)}>
-                <option value="">Selecione</option>
-                {(db.planos || []).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
-            </Field>
-            <Field label="Vendedor responsável">
-              <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
-                <option value="">Selecione</option>
-                {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </Field>
-          </div>
-          <div className="form-row-3">
-            <Field label="Valor mensal (R$)"><input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} /></Field>
-            <Field label="Valor instalação (R$)"><input type="number" step="0.01" value={form.valorInstalacao} onChange={(e) => set({ valorInstalacao: +e.target.value })} /></Field>
-            <Field label="Valor monitoramento (R$)"><input type="number" step="0.01" value={form.valorMonitoramento} onChange={(e) => set({ valorMonitoramento: +e.target.value })} /></Field>
-          </div>
-          <div className="form-row">
-            <Field label="Situação">
-              <select value={form.status} onChange={(e) => set({ status: e.target.value })}>
-                <option value="lead">Lead</option>
-                <option value="ativo">Ativo</option>
-                <option value="inativo">Inativo</option>
-              </select>
-            </Field>
-          </div>
-          <Field label="Observações">
-            <textarea value={form.observacoes} onChange={(e) => set({ observacoes: e.target.value })} placeholder="Anotações sobre o cliente, frota, etc." />
-          </Field>
+          <PessoaForm kind="cliente" form={form} setForm={setForm} db={db} />
         </Modal>
       )}
 

@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import {
   Layers, Plus, Trash2, Check, Coins, DollarSign, Wrench, ShieldCheck, Users,
 } from 'lucide-react'
-import { useStore, actions } from '../data/store.js'
+import { api, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL } from '../lib/format.js'
 import {
@@ -15,7 +16,7 @@ const emptyForm = () => ({
 })
 
 // ------- Card editável de um plano (estado local por plano) -------
-function PlanoCard({ plano, onLog }) {
+function PlanoCard({ plano, onLog, onSaved }) {
   const toast = useToast()
   const [vals, setVals] = useState({
     valorMensal: plano.valorMensal ?? 0,
@@ -30,15 +31,20 @@ function PlanoCard({ plano, onLog }) {
 
   const set = (patch) => setVals((v) => ({ ...v, ...patch }))
 
-  const salvar = () => {
+  const salvar = async () => {
     const partial = {
       valorMensal: +vals.valorMensal || 0,
       valorInstalacao: +vals.valorInstalacao || 0,
       valorMonitoramento: +vals.valorMonitoramento || 0,
     }
-    actions.patch('planos', plano.id, partial)
-    onLog(`Valores atualizados: ${plano.nome} (mensal ${BRL(partial.valorMensal)})`)
-    toast('Valores do plano salvos com sucesso')
+    try {
+      await api.planos.update(plano.id, partial)
+      onLog(`Valores atualizados: ${plano.nome} (mensal ${BRL(partial.valorMensal)})`)
+      toast('Valores do plano salvos com sucesso')
+      onSaved()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const restaurar = () => set({
@@ -47,11 +53,16 @@ function PlanoCard({ plano, onLog }) {
     valorMonitoramento: plano.valorMonitoramento ?? 0,
   })
 
-  const excluir = () => {
+  const excluir = async () => {
     if (!window.confirm(`Excluir o plano "${plano.nome}"?`)) return
-    actions.remove('planos', plano.id)
-    onLog(`Plano excluído: ${plano.nome}`)
-    toast('Plano excluído')
+    try {
+      await api.planos.remove(plano.id)
+      onLog(`Plano excluído: ${plano.nome}`)
+      toast('Plano excluído')
+      onSaved()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const total = (+vals.valorMensal || 0) + (+vals.valorMonitoramento || 0)
@@ -124,7 +135,7 @@ function PlanoCard({ plano, onLog }) {
 }
 
 export default function Planos() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['planos', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
   const [open, setOpen] = useState(false)
@@ -132,7 +143,7 @@ export default function Planos() {
 
   const planos = db.planos || []
 
-  const log = (detalhe) => actions.log(user.id, 'editar', 'plano', detalhe)
+  const log = (detalhe) => logAudit(user.id, 'editar', 'plano', detalhe)
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
@@ -144,7 +155,7 @@ export default function Planos() {
     return { n, mediaMensal, comMonit, assinantes }
   }, [planos, db.clients])
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) { toast('Informe o nome do plano', 'error'); return }
     const novo = {
       nome: form.nome.trim(),
@@ -153,11 +164,16 @@ export default function Planos() {
       valorInstalacao: +form.valorInstalacao || 0,
       valorMonitoramento: +form.valorMonitoramento || 0,
     }
-    actions.add('planos', novo)
-    log(`Novo plano criado: ${novo.nome}`)
-    toast('Plano criado com sucesso')
-    setOpen(false)
-    setForm(emptyForm())
+    try {
+      await api.planos.insert(novo)
+      log(`Novo plano criado: ${novo.nome}`)
+      toast('Plano criado com sucesso')
+      setOpen(false)
+      setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   return (
@@ -181,7 +197,7 @@ export default function Planos() {
       {planos.length ? (
         <div className="grid grid-2 mt-16">
           {planos.map((p) => (
-            <PlanoCard key={p.id} plano={p} onLog={log} />
+            <PlanoCard key={p.id} plano={p} onLog={log} onSaved={refetch} />
           ))}
         </div>
       ) : (

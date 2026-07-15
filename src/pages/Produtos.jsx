@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Package, Layers, Plus, Pencil, Trash2, Search, Boxes, Wrench, DollarSign, Coins } from 'lucide-react'
-import { useStore, actions } from '../data/store.js'
+import { api, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, uid } from '../lib/format.js'
 import {
@@ -10,7 +11,7 @@ import {
 const emptyForm = () => ({ nome: '', tipo: 'produto', valor: 0, descricao: '' })
 
 export default function Produtos() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['produtos'])
   const { user } = useAuth()
   const toast = useToast()
   const [q, setQ] = useState('')
@@ -44,7 +45,7 @@ export default function Produtos() {
     setOpen(true)
   }
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.nome.trim()) { toast('Informe o nome do item', 'error'); return }
     const payload = {
       nome: form.nome.trim(),
@@ -52,24 +53,34 @@ export default function Produtos() {
       valor: Number(form.valor) || 0,
       descricao: form.descricao.trim(),
     }
-    if (editId) {
-      actions.patch('produtos', editId, payload)
-      actions.log(user.id, 'editar', 'produto', `Item atualizado: ${payload.nome}`)
-      toast('Item atualizado com sucesso')
-    } else {
-      actions.add('produtos', { ...payload, id: uid('pr') })
-      actions.log(user.id, 'criar', 'produto', `Novo item: ${payload.nome}`)
-      toast('Item cadastrado com sucesso')
+    try {
+      if (editId) {
+        await api.produtos.update(editId, payload)
+        logAudit(user.id, 'editar', 'produto', `Item atualizado: ${payload.nome}`)
+        toast('Item atualizado com sucesso')
+      } else {
+        await api.produtos.insert({ ...payload, id: uid('pr') })
+        logAudit(user.id, 'criar', 'produto', `Novo item: ${payload.nome}`)
+        toast('Item cadastrado com sucesso')
+      }
+      setOpen(false)
+      setEditId(null)
+      setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
     }
-    setOpen(false)
-    setEditId(null)
-    setForm(emptyForm())
   }
 
-  const excluir = (p) => {
-    actions.remove('produtos', p.id)
-    actions.log(user.id, 'excluir', 'produto', `Item removido: ${p.nome}`)
-    toast('Item excluído')
+  const excluir = async (p) => {
+    try {
+      await api.produtos.remove(p.id)
+      logAudit(user.id, 'excluir', 'produto', `Item removido: ${p.nome}`)
+      toast('Item excluído')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const tipoBadge = (tipo) =>

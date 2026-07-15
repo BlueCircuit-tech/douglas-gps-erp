@@ -2,7 +2,8 @@ import { useState, useMemo } from 'react'
 import {
   FileText, Send, ExternalLink, CheckCircle2, ShieldCheck, Clock, FileSignature, Search, Eye,
 } from 'lucide-react'
-import { useStore, actions, clientName, byId } from '../data/store.js'
+import { api, clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, todayISO, uid, maskDoc } from '../lib/format.js'
 import {
@@ -73,13 +74,14 @@ ${nome} — ${fmtDate(todayISO())}`
 }
 
 export default function Contratos() {
-  const db = useStore()
+  const { db, loading, refetch } = useCollections(['contratos', 'clients', 'planos'])
   const { user } = useAuth()
   const toast = useToast()
 
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('todos')
   const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ clientId: '', template: TEMPLATES[0] })
 
   const contratos = db.contratos || []
@@ -103,7 +105,7 @@ export default function Contratos() {
     })
   }, [contratos, q, filter])
 
-  const selClient = form.clientId ? byId('clients', form.clientId) : null
+  const selClient = form.clientId ? (db.clients || []).find((c) => c.id === form.clientId) : null
   const selPlano = selClient ? (db.planos || []).find((p) => p.id === selClient.planoId) : null
   const preview = useMemo(() => buildPreview(selClient, form.template, selPlano), [selClient, form.template, selPlano])
 
@@ -112,34 +114,47 @@ export default function Contratos() {
     setOpen(true)
   }
 
-  const enviar = () => {
+  const enviar = async () => {
     if (!form.clientId) { toast('Selecione um cliente', 'error'); return }
     const hoje = todayISO()
     const link = 'https://app.autentique.com.br/documentos/' + uid('doc')
-    actions.add('contratos', {
-      clientId: form.clientId,
-      template: form.template,
-      status: 'enviado',
-      criadoEm: hoje,
-      assinadoEm: null,
-      autentiqueLink: link,
-    })
-    actions.add('documentos', {
-      clientId: form.clientId,
-      tipo: 'Contrato',
-      nome: `${form.template}.pdf`,
-      data: hoje,
-    })
-    actions.log(user.id, 'enviar', 'contrato', `${form.template} enviado para ${clientName(form.clientId)} (Autentique)`)
-    toast('Contrato enviado para assinatura via Autentique')
-    setOpen(false)
+    setSaving(true)
+    try {
+      await api.contratos.insert({
+        clientId: form.clientId,
+        template: form.template,
+        status: 'enviado',
+        criadoEm: hoje,
+        assinadoEm: null,
+        autentiqueLink: link,
+      })
+      await api.documentos.insert({
+        clientId: form.clientId,
+        tipo: 'Contrato',
+        nome: `${form.template}.pdf`,
+        data: hoje,
+      })
+      logAudit(user.id, 'enviar', 'contrato', `${form.template} enviado para ${clientName(form.clientId)} (Autentique)`)
+      toast('Contrato enviado para assinatura via Autentique')
+      setOpen(false)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const marcarAssinado = (c) => {
+  const marcarAssinado = async (c) => {
     const hoje = todayISO()
-    actions.patch('contratos', c.id, { status: 'assinado', assinadoEm: hoje })
-    actions.log(user.id, 'assinar', 'contrato', `${c.template} assinado por ${clientName(c.clientId)}`)
-    toast('Contrato marcado como assinado')
+    try {
+      await api.contratos.update(c.id, { status: 'assinado', assinadoEm: hoje })
+      logAudit(user.id, 'assinar', 'contrato', `${c.template} assinado por ${clientName(c.clientId)}`)
+      toast('Contrato marcado como assinado')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   return (
@@ -229,7 +244,10 @@ export default function Contratos() {
               ))}
             </tbody>
           </table>
-          {!list.length && (
+          {loading && (
+            <EmptyState icon={<FileText size={40} />} title="Carregando contratos..." sub="Buscando no Supabase." />
+          )}
+          {!loading && !list.length && (
             <EmptyState
               icon={<FileText size={40} />}
               title="Nenhum contrato encontrado"
@@ -249,7 +267,7 @@ export default function Contratos() {
         footer={
           <>
             <Btn onClick={() => setOpen(false)}>Cancelar</Btn>
-            <Btn variant="primary" icon={<Send size={16} />} onClick={enviar}>Enviar via Autentique</Btn>
+            <Btn variant="primary" icon={<Send size={16} />} onClick={enviar} disabled={saving}>{saving ? 'Enviando...' : 'Enviar via Autentique'}</Btn>
           </>
         }
       >

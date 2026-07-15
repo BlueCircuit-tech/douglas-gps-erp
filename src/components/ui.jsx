@@ -158,7 +158,7 @@ export const useToast = () => useContext(ToastCtx) || (() => {})
 export const STATUS_TONE = {
   ativo: 'green', inativo: 'gray', lead: 'blue',
   online: 'green', offline: 'gray', sem_sinal: 'red',
-  disponivel: 'green', em_uso: 'blue', defeituoso: 'amber', cancelado: 'red',
+  disponivel: 'green', em_uso: 'blue', manutencao: 'amber', defeituoso: 'amber', cancelado: 'red',
   aberta: 'amber', em_andamento: 'blue', concluida: 'green', cancelada: 'red',
   aberto: 'amber', pago: 'green', paga: 'green', atrasado: 'red', vencido: 'red', pendente: 'amber',
   enviado: 'blue', assinado: 'green', emitida: 'green',
@@ -166,6 +166,7 @@ export const STATUS_TONE = {
 export const STATUS_LABEL = {
   em_uso: 'Em uso', em_andamento: 'Em andamento', sem_sinal: 'Sem sinal',
   disponivel: 'Disponível', concluida: 'Concluída', atrasado: 'Atrasado',
+  manutencao: 'Manutenção', inativo: 'Inativo',
 }
 export function StatusBadge({ status }) {
   const tone = STATUS_TONE[status] || 'gray'

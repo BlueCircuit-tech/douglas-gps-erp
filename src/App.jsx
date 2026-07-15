@@ -7,6 +7,8 @@ import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Clientes from './pages/Clientes.jsx'
 import ClienteDetalhe from './pages/ClienteDetalhe.jsx'
+import Fornecedores from './pages/Fornecedores.jsx'
+import FornecedorDetalhe from './pages/FornecedorDetalhe.jsx'
 import Funil from './pages/Funil.jsx'
 import Contratos from './pages/Contratos.jsx'
 import Comissoes from './pages/Comissoes.jsx'
@@ -45,6 +47,8 @@ export default function App() {
       <Route path="/dashboard" element={<Protected module="dashboard"><Dashboard /></Protected>} />
       <Route path="/clientes" element={<Protected module="clientes"><Clientes /></Protected>} />
       <Route path="/clientes/:id" element={<Protected module="clientes"><ClienteDetalhe /></Protected>} />
+      <Route path="/fornecedores" element={<Protected module="fornecedores"><Fornecedores /></Protected>} />
+      <Route path="/fornecedores/:id" element={<Protected module="fornecedores"><FornecedorDetalhe /></Protected>} />
       <Route path="/funil" element={<Protected module="funil"><Funil /></Protected>} />
       <Route path="/contratos" element={<Protected module="contratos"><Contratos /></Protected>} />
       <Route path="/comissoes" element={<Protected module="comissoes"><Comissoes /></Protected>} />

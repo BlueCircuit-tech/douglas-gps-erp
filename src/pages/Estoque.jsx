@@ -1,34 +1,37 @@
 import { useState, useMemo } from 'react'
-import { Smartphone, Package, Plus, AlertTriangle, CheckCircle2, Layers, Boxes, Search, Ban } from 'lucide-react'
-import { useStore, actions, clientName } from '../data/store.js'
+import {
+  Smartphone, Package, Plus, CheckCircle2, Layers, Boxes, Search, Wrench,
+  Pencil, Link2, Link2Off, RotateCcw,
+} from 'lucide-react'
+import { api, clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, maskPhone, fmtDate, uid, todayISO } from '../lib/format.js'
+import { BRL, maskPhone, uid } from '../lib/format.js'
 import {
   PageHead, Card, Btn, Badge, Stat, Field, EmptyState, Modal, Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
 
 const OPERADORAS = ['Vivo', 'Claro', 'TIM', 'Arqia']
 
-const emptyChip = () => ({ iccid: '', linha: '', operadora: 'Vivo', valor: 25 })
-const emptyEquip = () => ({ modelo: '', serial: '', tipo: 'Rastreador', valor: 220 })
-const emptyCancel = () => ({ dataCancelamento: todayISO(), protocolo: '' })
+const emptyChip = () => ({ id: null, iccid: '', linha: '', operadora: 'Vivo', valor: 25 })
+const emptyEquip = () => ({ id: null, modelo: '', serial: '', tipo: 'Rastreador', valor: 220 })
 
+// Status ativos (sem defeituoso/cancelado — pedido do cliente).
 const STATUS_FILTERS = [
   { value: 'todos', label: 'Todos' },
   { value: 'disponivel', label: 'Disponíveis' },
   { value: 'em_uso', label: 'Em uso' },
-  { value: 'defeituoso', label: 'Defeituosos' },
-  { value: 'cancelado', label: 'Cancelados' },
+  { value: 'manutencao', label: 'Manutenção' },
 ]
 
 const count = (arr, status) => arr.filter((x) => x.status === status).length
 
 export default function Estoque() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['equipamentos', 'chips', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
 
-  const [tab, setTab] = useState('chips')
+  const [tab, setTab] = useState('equipamentos')
   const [statusFilter, setStatusFilter] = useState('todos')
   const [q, setQ] = useState('')
 
@@ -38,8 +41,8 @@ export default function Estoque() {
   const [equipOpen, setEquipOpen] = useState(false)
   const [equipForm, setEquipForm] = useState(emptyEquip)
 
-  const [cancelTarget, setCancelTarget] = useState(null) // chip a cancelar
-  const [cancelForm, setCancelForm] = useState(emptyCancel)
+  // Vínculo chip ↔ equipamento. { kind: 'chip'|'equip', item }
+  const [vinculo, setVinculo] = useState(null)
 
   const chips = db.chips || []
   const equipamentos = db.equipamentos || []
@@ -59,81 +62,114 @@ export default function Estoque() {
 
   const kpiList = tab === 'chips' ? chips : equipamentos
 
-  // ---------- Ações ----------
-  const marcarDefeituoso = (coll, item) => {
-    actions.patch(coll, item.id, { status: 'defeituoso' })
-    const ent = coll === 'chips' ? 'chip' : 'equipamento'
-    actions.log(user.id, 'editar', ent, `Marcado defeituoso: ${item.iccid || item.serial}`)
-    toast('Item marcado como defeituoso')
+  // ---------- Manutenção / voltar para disponível ----------
+  const alternarManutencao = async (coll, item) => {
+    const emManutencao = item.status === 'manutencao'
+    const novoStatus = emManutencao ? (item.clientId ? 'em_uso' : 'disponivel') : 'manutencao'
+    try {
+      await api[coll].update(item.id, { status: novoStatus })
+      const ent = coll === 'chips' ? 'chip' : 'equipamento'
+      logAudit(user.id, 'editar', ent, `${emManutencao ? 'Retorno de manutenção' : 'Enviado para manutenção'}: ${item.iccid || item.serial}`)
+      toast(emManutencao ? 'Item retornou da manutenção' : 'Item enviado para manutenção')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const abrirCancelChip = (chip) => {
-    setCancelForm(emptyCancel())
-    setCancelTarget(chip)
-  }
+  // ---------- Editar ----------
+  const editarChip = (c) => { setChipForm({ id: c.id, iccid: c.iccid, linha: c.linha, operadora: c.operadora, valor: c.valor }); setChipOpen(true) }
+  const editarEquip = (e) => { setEquipForm({ id: e.id, modelo: e.modelo, serial: e.serial, tipo: e.tipo, valor: e.valor }); setEquipOpen(true) }
 
-  const confirmarCancelChip = () => {
-    if (!cancelForm.protocolo.trim()) { toast('Informe o nº do protocolo', 'error'); return }
-    if (!cancelForm.dataCancelamento) { toast('Informe a data do cancelamento', 'error'); return }
-    actions.patch('chips', cancelTarget.id, {
-      status: 'cancelado',
-      dataCancelamento: cancelForm.dataCancelamento,
-      protocolo: cancelForm.protocolo.trim(),
-      clientId: null,
-    })
-    actions.log(user.id, 'cancelar', 'chip', `Chip ${cancelTarget.iccid} cancelado · protocolo ${cancelForm.protocolo.trim()}`)
-    toast('Chip cancelado com sucesso')
-    setCancelTarget(null)
-  }
-
-  const cancelarEquip = (item) => {
-    actions.patch('equipamentos', item.id, { status: 'cancelado', clientId: null })
-    actions.log(user.id, 'cancelar', 'equipamento', `Equipamento ${item.serial} cancelado`)
-    toast('Equipamento cancelado')
-  }
-
-  const salvarChip = () => {
+  const salvarChip = async () => {
     if (!chipForm.iccid.trim()) { toast('Informe o ICCID', 'error'); return }
-    actions.add('chips', {
-      id: uid('ch'),
-      iccid: chipForm.iccid.trim(),
-      linha: chipForm.linha.trim(),
-      operadora: chipForm.operadora,
-      valor: +chipForm.valor || 0,
-      status: 'disponivel',
-      clientId: null,
-    })
-    actions.log(user.id, 'criar', 'chip', `Novo chip ${chipForm.iccid.trim()} (${chipForm.operadora})`)
-    toast('Chip adicionado ao estoque')
-    setChipOpen(false)
-    setChipForm(emptyChip())
+    try {
+      if (chipForm.id) {
+        await api.chips.update(chipForm.id, { iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0 })
+        logAudit(user.id, 'editar', 'chip', `Chip ${chipForm.iccid.trim()} editado`)
+        toast('Chip atualizado')
+      } else {
+        await api.chips.insert({ id: uid('ch'), iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, status: 'disponivel', clientId: null, equipamentoId: null })
+        logAudit(user.id, 'criar', 'chip', `Novo chip ${chipForm.iccid.trim()} (${chipForm.operadora})`)
+        toast('Chip adicionado ao estoque')
+      }
+      setChipOpen(false)
+      setChipForm(emptyChip())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const salvarEquip = () => {
+  const salvarEquip = async () => {
     if (!equipForm.modelo.trim()) { toast('Informe o modelo', 'error'); return }
     if (!equipForm.serial.trim()) { toast('Informe o nº de série', 'error'); return }
-    actions.add('equipamentos', {
-      id: uid('eq'),
-      modelo: equipForm.modelo.trim(),
-      serial: equipForm.serial.trim(),
-      tipo: equipForm.tipo.trim() || 'Rastreador',
-      valor: +equipForm.valor || 0,
-      status: 'disponivel',
-      clientId: null,
-    })
-    actions.log(user.id, 'criar', 'equipamento', `Novo equipamento ${equipForm.serial.trim()} (${equipForm.modelo.trim()})`)
-    toast('Equipamento adicionado ao estoque')
-    setEquipOpen(false)
-    setEquipForm(emptyEquip())
+    try {
+      if (equipForm.id) {
+        await api.equipamentos.update(equipForm.id, { modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0 })
+        logAudit(user.id, 'editar', 'equipamento', `Equipamento ${equipForm.serial.trim()} editado`)
+        toast('Equipamento atualizado')
+      } else {
+        await api.equipamentos.insert({ id: uid('eq'), modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, status: 'disponivel', clientId: null, chipId: null })
+        logAudit(user.id, 'criar', 'equipamento', `Novo equipamento ${equipForm.serial.trim()} (${equipForm.modelo.trim()})`)
+        toast('Equipamento adicionado ao estoque')
+      }
+      setEquipOpen(false)
+      setEquipForm(emptyEquip())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  // ---------- Vinculação ----------
+  const chipById = (id) => chips.find((c) => c.id === id)
+  const equipById = (id) => equipamentos.find((e) => e.id === id)
+
+  // Alvos disponíveis para o modal de vínculo.
+  const alvosVinculo = useMemo(() => {
+    if (!vinculo) return []
+    if (vinculo.kind === 'chip') return equipamentos.filter((e) => e.status !== 'manutencao' && !e.chipId)
+    return chips.filter((c) => c.status !== 'manutencao' && !c.equipamentoId)
+  }, [vinculo, equipamentos, chips])
+
+  const confirmarVinculo = async (alvo) => {
+    if (!vinculo) return
+    const chip = vinculo.kind === 'chip' ? vinculo.item : alvo
+    const equip = vinculo.kind === 'chip' ? alvo : vinculo.item
+    const clientId = equip.clientId || chip.clientId || null
+    const status = clientId ? 'em_uso' : 'disponivel'
+    try {
+      await api.chips.update(chip.id, { equipamentoId: equip.id, clientId, status })
+      await api.equipamentos.update(equip.id, { chipId: chip.id, clientId, status })
+      logAudit(user.id, 'vincular', 'estoque', `Chip ${chip.iccid} ↔ Equipamento ${equip.serial}`)
+      toast('Chip vinculado ao equipamento')
+      setVinculo(null)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  const desvincular = async (equip) => {
+    const chip = chipById(equip.chipId)
+    try {
+      if (chip) await api.chips.update(chip.id, { equipamentoId: null, status: chip.status === 'em_uso' ? 'disponivel' : chip.status, clientId: null })
+      await api.equipamentos.update(equip.id, { chipId: null })
+      logAudit(user.id, 'desvincular', 'estoque', `Equipamento ${equip.serial} desvinculado do chip`)
+      toast('Chip desvinculado')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const setChip = (patch) => setChipForm((f) => ({ ...f, ...patch }))
   const setEquip = (patch) => setEquipForm((f) => ({ ...f, ...patch }))
-  const setCancel = (patch) => setCancelForm((f) => ({ ...f, ...patch }))
 
   return (
     <>
-      <PageHead title="Estoque" subtitle="Controle de chips e equipamentos: disponibilidade, uso, defeitos e cancelamentos.">
+      <PageHead title="Estoque" subtitle="Controle de equipamentos e chips: disponibilidade, uso, manutenção e vinculação.">
         {tab === 'chips' ? (
           <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setChipForm(emptyChip()); setChipOpen(true) }}>
             Adicionar chip
@@ -147,16 +183,16 @@ export default function Estoque() {
 
       <div className="flex between wrap gap-12" style={{ marginBottom: 16 }}>
         <Segmented value={tab} onChange={(v) => { setTab(v); setStatusFilter('todos') }} options={[
-          { value: 'chips', label: 'Chips' },
           { value: 'equipamentos', label: 'Equipamentos' },
+          { value: 'chips', label: 'Chips' },
         ]} />
       </div>
 
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
+        <Stat icon={<Boxes size={18} />} tone="purple" label="Total" value={kpiList.length} />
         <Stat icon={<CheckCircle2 size={18} />} tone="green" label="Disponíveis" value={count(kpiList, 'disponivel')} />
         <Stat icon={<Layers size={18} />} tone="blue" label="Em uso" value={count(kpiList, 'em_uso')} />
-        <Stat icon={<AlertTriangle size={18} />} tone="amber" label="Defeituosos" value={count(kpiList, 'defeituoso')} />
-        <Stat icon={<Ban size={18} />} tone="red" label="Cancelados" value={count(kpiList, 'cancelado')} />
+        <Stat icon={<Wrench size={18} />} tone="amber" label="Manutenção" value={count(kpiList, 'manutencao')} />
       </div>
 
       <Card>
@@ -180,38 +216,37 @@ export default function Estoque() {
               <thead>
                 <tr>
                   <th>ICCID</th><th>Linha</th><th>Operadora</th><th className="right">Valor</th>
-                  <th>Cliente</th><th>Status</th><th>Cancelamento</th><th className="right">Ações</th>
+                  <th>Equipamento</th><th>Cliente</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id}>
-                    <td className="mono">{c.iccid}</td>
-                    <td className="mono">{maskPhone(c.linha)}</td>
-                    <td><Badge tone="gray">{c.operadora}</Badge></td>
-                    <td className="right mono">{BRL(c.valor)}</td>
-                    <td>{clientName(c.clientId)}</td>
-                    <td><StatusBadge status={c.status} /></td>
-                    <td>
-                      {c.status === 'cancelado' ? (
-                        <div style={{ fontSize: 12.5 }}>
-                          <div className="bold mono">{c.protocolo || '—'}</div>
-                          <div className="mut">{fmtDate(c.dataCancelamento)}</div>
+                {filtered.map((c) => {
+                  const eq = equipById(c.equipamentoId)
+                  return (
+                    <tr key={c.id}>
+                      <td className="mono">{c.iccid}</td>
+                      <td className="mono">{maskPhone(c.linha)}</td>
+                      <td><Badge tone="gray">{c.operadora}</Badge></td>
+                      <td className="right mono">{BRL(c.valor)}</td>
+                      <td className="mono">{eq ? eq.serial : <span className="mut">—</span>}</td>
+                      <td>{clientName(c.clientId)}</td>
+                      <td><StatusBadge status={c.status} /></td>
+                      <td className="right nowrap">
+                        <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
+                          <Btn size="sm" icon={<Pencil size={13} />} onClick={() => editarChip(c)}>Editar</Btn>
+                          {eq ? (
+                            <Btn size="sm" icon={<Link2Off size={13} />} onClick={() => desvincular(eq)}>Desvincular</Btn>
+                          ) : (
+                            c.status !== 'manutencao' && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'chip', item: c })}>Vincular</Btn>
+                          )}
+                          <Btn size="sm" icon={c.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao('chips', c)}>
+                            {c.status === 'manutencao' ? 'Disponível' : 'Manutenção'}
+                          </Btn>
                         </div>
-                      ) : <span className="mut">—</span>}
-                    </td>
-                    <td className="right nowrap">
-                      <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
-                        {c.status !== 'defeituoso' && c.status !== 'cancelado' && (
-                          <Btn size="sm" icon={<AlertTriangle size={13} />} onClick={() => marcarDefeituoso('chips', c)}>Defeituoso</Btn>
-                        )}
-                        {c.status !== 'cancelado' && (
-                          <Btn size="sm" variant="danger" icon={<Ban size={13} />} onClick={() => abrirCancelChip(c)}>Cancelar</Btn>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           ) : (
@@ -219,30 +254,37 @@ export default function Estoque() {
               <thead>
                 <tr>
                   <th>Modelo</th><th>Nº de série</th><th>Tipo</th><th className="right">Valor</th>
-                  <th>Cliente</th><th>Status</th><th className="right">Ações</th>
+                  <th>Chip vinculado</th><th>Cliente</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e) => (
-                  <tr key={e.id}>
-                    <td className="bold">{e.modelo}</td>
-                    <td className="mono">{e.serial}</td>
-                    <td><Badge tone="blue">{e.tipo}</Badge></td>
-                    <td className="right mono">{BRL(e.valor)}</td>
-                    <td>{clientName(e.clientId)}</td>
-                    <td><StatusBadge status={e.status} /></td>
-                    <td className="right nowrap">
-                      <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
-                        {e.status !== 'defeituoso' && e.status !== 'cancelado' && (
-                          <Btn size="sm" icon={<AlertTriangle size={13} />} onClick={() => marcarDefeituoso('equipamentos', e)}>Defeituoso</Btn>
-                        )}
-                        {e.status !== 'cancelado' && (
-                          <Btn size="sm" variant="danger" icon={<Ban size={13} />} onClick={() => cancelarEquip(e)}>Cancelar</Btn>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((e) => {
+                  const chip = chipById(e.chipId)
+                  return (
+                    <tr key={e.id}>
+                      <td className="bold">{e.modelo}</td>
+                      <td className="mono">{e.serial}</td>
+                      <td><Badge tone="blue">{e.tipo}</Badge></td>
+                      <td className="right mono">{BRL(e.valor)}</td>
+                      <td className="mono">{chip ? `${chip.operadora} · ${maskPhone(chip.linha)}` : <span className="mut">— sem chip —</span>}</td>
+                      <td>{clientName(e.clientId)}</td>
+                      <td><StatusBadge status={e.status} /></td>
+                      <td className="right nowrap">
+                        <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
+                          <Btn size="sm" icon={<Pencil size={13} />} onClick={() => editarEquip(e)}>Editar</Btn>
+                          {chip ? (
+                            <Btn size="sm" icon={<Link2Off size={13} />} onClick={() => desvincular(e)}>Desvincular</Btn>
+                          ) : (
+                            e.status !== 'manutencao' && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'equip', item: e })}>Vincular chip</Btn>
+                          )}
+                          <Btn size="sm" icon={e.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao('equipamentos', e)}>
+                            {e.status === 'manutencao' ? 'Disponível' : 'Manutenção'}
+                          </Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
@@ -257,13 +299,13 @@ export default function Estoque() {
         </div>
       </Card>
 
-      {/* ---- Modal: adicionar chip ---- */}
+      {/* ---- Modal: adicionar / editar chip ---- */}
       <Modal
         open={chipOpen}
         onClose={() => setChipOpen(false)}
-        title="Adicionar chip ao estoque"
+        title={chipForm.id ? 'Editar chip' : 'Adicionar chip ao estoque'}
         icon={<Smartphone size={20} color="var(--brand)" />}
-        footer={<><Btn onClick={() => setChipOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarChip}>Salvar chip</Btn></>}
+        footer={<><Btn onClick={() => setChipOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarChip}>{chipForm.id ? 'Salvar alterações' : 'Salvar chip'}</Btn></>}
       >
         <Field label="ICCID" required hint="Número impresso no chip (20 dígitos)">
           <input value={chipForm.iccid} onChange={(e) => setChip({ iccid: e.target.value })} placeholder="8955010012345678901" />
@@ -281,16 +323,16 @@ export default function Estoque() {
         <Field label="Valor (R$)">
           <input type="number" step="0.01" value={chipForm.valor} onChange={(e) => setChip({ valor: e.target.value })} />
         </Field>
-        <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O chip entra no estoque com status <b>Disponível</b>.</div>
+        {!chipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O chip entra no estoque com status <b>Disponível</b>.</div>}
       </Modal>
 
-      {/* ---- Modal: adicionar equipamento ---- */}
+      {/* ---- Modal: adicionar / editar equipamento ---- */}
       <Modal
         open={equipOpen}
         onClose={() => setEquipOpen(false)}
-        title="Adicionar equipamento ao estoque"
+        title={equipForm.id ? 'Editar equipamento' : 'Adicionar equipamento ao estoque'}
         icon={<Package size={20} color="var(--brand)" />}
-        footer={<><Btn onClick={() => setEquipOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarEquip}>Salvar equipamento</Btn></>}
+        footer={<><Btn onClick={() => setEquipOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarEquip}>{equipForm.id ? 'Salvar alterações' : 'Salvar equipamento'}</Btn></>}
       >
         <div className="form-row">
           <Field label="Modelo" required>
@@ -308,33 +350,59 @@ export default function Estoque() {
             <input type="number" step="0.01" value={equipForm.valor} onChange={(e) => setEquip({ valor: e.target.value })} />
           </Field>
         </div>
-        <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O equipamento entra no estoque com status <b>Disponível</b>.</div>
+        {!equipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O equipamento entra no estoque com status <b>Disponível</b>.</div>}
       </Modal>
 
-      {/* ---- Modal: cancelar chip (Tarefa 39) ---- */}
+      {/* ---- Modal: vincular chip ↔ equipamento ---- */}
       <Modal
-        open={!!cancelTarget}
-        onClose={() => setCancelTarget(null)}
-        title="Cancelar chip"
-        icon={<Ban size={20} color="var(--red)" />}
-        footer={<><Btn onClick={() => setCancelTarget(null)}>Voltar</Btn><Btn variant="danger" onClick={confirmarCancelChip}>Confirmar cancelamento</Btn></>}
+        open={!!vinculo}
+        onClose={() => setVinculo(null)}
+        title={vinculo?.kind === 'chip' ? 'Vincular chip a um equipamento' : 'Vincular chip ao equipamento'}
+        icon={<Link2 size={20} color="var(--brand)" />}
+        footer={<Btn onClick={() => setVinculo(null)}>Fechar</Btn>}
       >
-        {cancelTarget && (
+        {vinculo && (
           <>
             <div className="soft" style={{ marginBottom: 12 }}>
-              Cancelando o chip <b className="mono">{cancelTarget.iccid}</b>
-              {' '}({cancelTarget.operadora} · {maskPhone(cancelTarget.linha)}).
+              {vinculo.kind === 'chip'
+                ? <>Selecione o <b>equipamento disponível</b> para o chip <b className="mono">{vinculo.item.iccid}</b> ({vinculo.item.operadora}).</>
+                : <>Selecione o <b>chip disponível</b> para o equipamento <b className="mono">{vinculo.item.serial}</b> ({vinculo.item.modelo}).</>}
             </div>
-            <div className="form-row">
-              <Field label="Data do cancelamento" required>
-                <input type="date" value={cancelForm.dataCancelamento} onChange={(e) => setCancel({ dataCancelamento: e.target.value })} />
-              </Field>
-              <Field label="Nº do protocolo" required hint="Protocolo junto à operadora">
-                <input value={cancelForm.protocolo} onChange={(e) => setCancel({ protocolo: e.target.value })} placeholder="PROT-2026-0042" />
-              </Field>
-            </div>
-            <div className="flex gap-6 mut" style={{ fontSize: 12.5, alignItems: 'center' }}>
-              <AlertTriangle size={14} /> O chip ficará com status <b>Cancelado</b> e será desvinculado do cliente.
+            <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    {vinculo.kind === 'chip'
+                      ? <><th>Modelo</th><th>Nº de série</th><th>Tipo</th><th className="right">Ação</th></>
+                      : <><th>ICCID</th><th>Linha</th><th>Operadora</th><th className="right">Ação</th></>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {alvosVinculo.map((alvo) => (
+                    <tr key={alvo.id}>
+                      {vinculo.kind === 'chip' ? (
+                        <>
+                          <td className="bold">{alvo.modelo}</td>
+                          <td className="mono">{alvo.serial}</td>
+                          <td><Badge tone="blue">{alvo.tipo}</Badge></td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="mono">{alvo.iccid}</td>
+                          <td className="mono">{maskPhone(alvo.linha)}</td>
+                          <td><Badge tone="gray">{alvo.operadora}</Badge></td>
+                        </>
+                      )}
+                      <td className="right">
+                        <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => confirmarVinculo(alvo)}>Vincular</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!alvosVinculo.length && (
+                <EmptyState icon={<Boxes size={36} />} title="Nada disponível para vincular" sub={vinculo.kind === 'chip' ? 'Não há equipamentos disponíveis sem chip.' : 'Não há chips disponíveis sem equipamento.'} />
+              )}
             </div>
           </>
         )}

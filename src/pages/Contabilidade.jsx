@@ -3,7 +3,8 @@ import {
   Calculator, FileText, Plus, Download, ShieldCheck, Receipt,
   DollarSign, CheckCircle2, AlertTriangle, Check,
 } from 'lucide-react'
-import { useStore, actions, clientName } from '../data/store.js'
+import { api, clientName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDate, uid, todayISO } from '../lib/format.js'
 import {
@@ -22,7 +23,7 @@ const proximoNumero = (notas) => {
 }
 
 export default function Contabilidade() {
-  const db = useStore()
+  const { db, refetch } = useCollections(['notasFiscais', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
 
@@ -56,7 +57,7 @@ export default function Contabilidade() {
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.clientId) { toast('Selecione o cliente', 'error'); return }
     const valor = Number(form.valor) || 0
     if (valor <= 0) { toast('Informe um valor válido', 'error'); return }
@@ -70,23 +71,33 @@ export default function Contabilidade() {
       emitidaEm: null,
       spedyId: '',
     }
-    actions.add('notasFiscais', nova)
-    actions.log(user.id, 'criar', 'nota fiscal', `Nova ${form.tipo} pendente para ${clientName(form.clientId)} (${BRL(valor)})`)
-    toast('Nota fiscal criada (pendente)')
-    setOpen(false)
-    setForm(emptyForm())
+    try {
+      await api.notasFiscais.insert(nova)
+      logAudit(user.id, 'criar', 'nota fiscal', `Nova ${form.tipo} pendente para ${clientName(form.clientId)} (${BRL(valor)})`)
+      toast('Nota fiscal criada (pendente)')
+      setOpen(false)
+      setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
-  const emitir = (nf) => {
+  const emitir = async (nf) => {
     const numero = proximoNumero(notas)
-    actions.patch('notasFiscais', nf.id, {
-      status: 'emitida',
-      numero,
-      emitidaEm: todayISO(),
-      spedyId: uid('spedy'),
-    })
-    actions.log(user.id, 'emitir', 'nota fiscal', `${nf.tipo} nº ${numero} emitida para ${clientName(nf.clientId)} (${BRL(nf.valor)})`)
-    toast(`Nota ${numero} emitida via Spedy`)
+    try {
+      await api.notasFiscais.update(nf.id, {
+        status: 'emitida',
+        numero,
+        emitidaEm: todayISO(),
+        spedyId: uid('spedy'),
+      })
+      logAudit(user.id, 'emitir', 'nota fiscal', `${nf.tipo} nº ${numero} emitida para ${clientName(nf.clientId)} (${BRL(nf.valor)})`)
+      toast(`Nota ${numero} emitida via Spedy`)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
   }
 
   const baixar = (nf) => {

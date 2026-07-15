@@ -5,6 +5,7 @@
 export const MODULES = {
   dashboard:    { label: 'Dashboard' },
   clientes:     { label: 'Clientes' },
+  fornecedores: { label: 'Fornecedores' },
   funil:        { label: 'Funil de Vendas' },
   os:           { label: 'Ordens de Serviço' },
   estoque:      { label: 'Estoque' },
@@ -28,8 +29,8 @@ export const PERMISSIONS = {
   admin: ALL,
   vendedor: ['dashboard', 'clientes', 'funil', 'contratos', 'comissoes', 'produtos', 'planos', 'notificacoes', 'ajuda'],
   tecnico: ['dashboard', 'os', 'estoque', 'notificacoes', 'ajuda'],
-  operacional: ['dashboard', 'os', 'clientes', 'estoque', 'contratos', 'notificacoes', 'ajuda'],
-  contabilidade: ['dashboard', 'financeiro', 'boletos', 'contabilidade', 'relatorios', 'contratos', 'notificacoes', 'ajuda'],
+  operacional: ['dashboard', 'os', 'clientes', 'fornecedores', 'estoque', 'contratos', 'notificacoes', 'ajuda'],
+  contabilidade: ['dashboard', 'financeiro', 'boletos', 'contabilidade', 'fornecedores', 'relatorios', 'contratos', 'notificacoes', 'ajuda'],
   contador: ['dashboard', 'contabilidade', 'relatorios', 'ajuda'],
 }
 

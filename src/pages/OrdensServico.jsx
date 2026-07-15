@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ClipboardList, Plus, Wrench, Download, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
-import { useStore, actions, clientName, userName } from '../data/store.js'
+import { ordensApi, clientName, userName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { fmtDate, uid } from '../lib/format.js'
 import { PageHead, Card, Btn, Badge, Modal, Field, Segmented, EmptyState, useToast, StatusBadge } from '../components/ui.jsx'
@@ -37,12 +38,13 @@ const checklistFor = (tipo) => {
 const emptyForm = () => ({ clientId: '', tecnicoId: '', tipo: 'instalacao', veiculo: '', endereco: '', enderecoTecnico: '', observacoes: '' })
 
 export default function OrdensServico() {
-  const db = useStore()
+  const { db, loading, refetch } = useCollections(['ordens', 'clients', 'users'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('todas')
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(emptyForm)
 
   const tecnicos = (db.users || []).filter((u) => u.role === 'tecnico')
@@ -62,17 +64,25 @@ export default function OrdensServico() {
     set({ clientId, endereco: addr })
   }
 
-  const salvar = () => {
+  const salvar = async () => {
     if (!form.clientId || !form.tecnicoId) { toast('Selecione cliente e técnico', 'error'); return }
     const numero = 1000 + (db.ordens || []).length + 1
     const os = {
       ...form, id: uid('os'), numero, status: 'aberta', km: null, equipamentoId: null,
       checklist: checklistFor(form.tipo), abertaEm: new Date().toISOString().slice(0, 10), concluidaEm: null,
     }
-    actions.add('ordens', os)
-    actions.log(user.id, 'criar', 'OS', `OS #${numero} - ${OS_TIPOS[form.tipo].label} para ${clientName(form.clientId)}`)
-    toast('Ordem de serviço criada')
-    setOpen(false); setForm(emptyForm())
+    setSaving(true)
+    try {
+      await ordensApi.insert(os)
+      logAudit(user.id, 'criar', 'OS', `OS #${numero} - ${OS_TIPOS[form.tipo].label} para ${clientName(form.clientId)}`)
+      toast('Ordem de serviço criada')
+      setOpen(false); setForm(emptyForm())
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const abertas = (db.ordens || []).filter((o) => o.status === 'aberta' || o.status === 'em_andamento').length
@@ -109,12 +119,13 @@ export default function OrdensServico() {
               })}
             </tbody>
           </table>
-          {!list.length && <EmptyState icon={<ClipboardList size={40} />} title="Nenhuma OS" sub="Crie a primeira ordem de serviço." />}
+          {loading && <EmptyState icon={<ClipboardList size={40} />} title="Carregando ordens..." sub="Buscando no Supabase." />}
+          {!loading && !list.length && <EmptyState icon={<ClipboardList size={40} />} title="Nenhuma OS" sub="Crie a primeira ordem de serviço." />}
         </div>
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} size="lg" title="Criar Ordem de Serviço" icon={<ClipboardList size={20} color="var(--brand)" />}
-        footer={<><Btn onClick={() => setOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvar}>Criar OS</Btn></>}>
+        footer={<><Btn onClick={() => setOpen(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvar} disabled={saving}>{saving ? 'Criando...' : 'Criar OS'}</Btn></>}>
         <Field label="Tipo de serviço (Tarefa 32)">
           <div className="seg" style={{ width: '100%' }}>
             {Object.entries(OS_TIPOS).map(([k, t]) => (

@@ -15,10 +15,17 @@ export default function Login() {
   const [senha, setSenha] = useState('123456')
   const [sent, setSent] = useState(false)
 
-  const entrar = (e) => {
+  const [entrando, setEntrando] = useState(false)
+
+  const entrar = async (e) => {
     e.preventDefault()
-    loginAs(role)
-    navigate('/dashboard')
+    setEntrando(true)
+    try {
+      await loginAs(role, email)
+      navigate('/dashboard')
+    } finally {
+      setEntrando(false)
+    }
   }
 
   return (
@@ -85,7 +92,7 @@ export default function Login() {
                 <a className="soft bold" style={{ fontSize: 13, cursor: 'pointer' }} onClick={() => setMode('recuperar')}>Esqueci a senha</a>
               </div>
 
-              <Btn variant="primary" className="btn-block" type="submit">Entrar</Btn>
+              <Btn variant="primary" className="btn-block" type="submit" disabled={entrando}>{entrando ? 'Entrando...' : 'Entrar'}</Btn>
             </form>
           ) : (
             <div>

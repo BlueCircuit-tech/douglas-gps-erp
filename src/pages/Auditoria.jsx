@@ -3,7 +3,8 @@ import {
   ShieldCheck, Search, Download, Activity, Users, CalendarCheck,
   Filter, LogIn, LogOut, Plus, Pencil, CheckCircle2, Gift, Trash2, Bell,
 } from 'lucide-react'
-import { useStore, actions, userName } from '../data/store.js'
+import { userName, logAudit } from '../data/api.js'
+import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { fmtDateTime, todayISO } from '../lib/format.js'
 import {
@@ -36,7 +37,7 @@ const RASTREADOS = [
 ]
 
 export default function Auditoria() {
-  const db = useStore()
+  const { db } = useCollections(['auditLogs', 'users'])
   const { user } = useAuth()
   const toast = useToast()
 
@@ -97,7 +98,7 @@ export default function Auditoria() {
     a.download = `auditoria_${todayISO()}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    actions.log(user.id, 'exportar', 'auditoria', `Exportou relatório de auditoria (${filtrados.length} eventos)`)
+    logAudit(user.id, 'exportar', 'auditoria', `Exportou relatório de auditoria (${filtrados.length} eventos)`)
     toast('Relatório exportado com sucesso')
   }
 
