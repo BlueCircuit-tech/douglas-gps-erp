@@ -10,6 +10,14 @@ import { fmtDate, BRL, uid } from '../lib/format.js'
 import { PageHead, Card, CardHead, Btn, Field, Modal, Progress, useToast, StatusBadge } from '../components/ui.jsx'
 import { OS_TIPOS } from './OrdensServico.jsx'
 
+// Tipo da OS → serviço da comissão + campo de valor cadastrado para o técnico (Equipe).
+const SERVICO_DA_OS = {
+  instalacao: { tipoServico: 'instalacao', campo: 'valorInstalacao' },
+  manutencao: { tipoServico: 'manutencao', campo: 'valorManutencao' },
+  retirada: { tipoServico: 'desinstalacao', campo: 'valorDesinstalacao' },
+}
+const placaDoVeiculo = (v) => (String(v || '').toUpperCase().match(/[A-Z]{3}-?\d[A-Z0-9]\d{2}/) || [''])[0].replace('-', '')
+
 export default function OrdemDetalhe() {
   const { id } = useParams()
   const { db, loading, refetch } = useCollections(['ordens', 'users', 'clients'])
@@ -59,11 +67,13 @@ export default function OrdemDetalhe() {
     const valorKm = tecnico?.valorKm || 1.2
     try {
       await ordensApi.update(os.id, { status: 'concluida', concluidaEm: new Date().toISOString().slice(0, 10), km: kmFinal })
-      // Comissão do técnico por KM (Tarefa 33)
+      // Comissão do técnico: valor do serviço + KM rodados (Tarefa 33).
+      const S = SERVICO_DA_OS[os.tipo] || SERVICO_DA_OS.instalacao
       await api.comissoes.insert({
-        id: uid('co'), tipo: 'tecnico', pessoaId: os.tecnicoId,
-        referencia: `OS #${os.numero} - ${T.label} ${clientName(os.clientId)}`,
-        valorFixo: +(kmFinal * valorKm).toFixed(2), km: kmFinal, kmManual: !rotaTracada,
+        id: uid('co'), tipo: 'tecnico', pessoaId: os.tecnicoId, clientId: os.clientId,
+        tipoServico: S.tipoServico, valorServico: Number(tecnico?.[S.campo]) || 0,
+        placa: placaDoVeiculo(os.veiculo), equipamentoId: os.equipamentoId || null,
+        km: kmFinal, valorKm, kmManual: !rotaTracada, pedagio: 0, extras: 0,
         data: new Date().toISOString().slice(0, 10), status: 'pendente',
       })
       logAudit(user.id, 'concluir', 'OS', `OS #${os.numero} concluída (${kmFinal} km)`)

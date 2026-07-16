@@ -1,9 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
-  LayoutDashboard, Users, SquareKanban, ClipboardList, Boxes, Wallet, Receipt,
+  LayoutDashboard, Users, SquareKanban, ClipboardList, Wallet, Receipt,
   Coins, FileText, Calculator, Package, Layers, BarChart3, ShieldCheck, Bell,
   LifeBuoy, Search, LogOut, MapPin, ChevronDown, ExternalLink, Truck,
+  Smartphone, Link2,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { useCollections } from '../hooks/useSupabase.js'
@@ -26,7 +27,9 @@ const NAV = [
     { key: 'os', to: '/os', label: 'Ordens de Serviço', icon: ClipboardList },
   ]},
   { section: 'Estoque', items: [
-    { key: 'estoque', to: '/estoque', label: 'Estoque', icon: Boxes },
+    { key: 'estoque', to: '/estoque/equipamentos', label: 'Equipamento', icon: Package },
+    { key: 'estoque', to: '/estoque/chips', label: 'Chip', icon: Smartphone },
+    { key: 'estoque', to: '/estoque/vinculos', label: 'Equipamento/Chip', icon: Link2 },
   ]},
   { section: 'Financeiro', items: [
     { key: 'financeiro', to: '/financeiro', label: 'Financeiro', icon: Wallet },
@@ -77,7 +80,7 @@ export default function AppShell({ children }) {
               <div key={sec.section}>
                 <div className="nav-section">{sec.section}</div>
                 {items.map((it) => (
-                  <NavLink key={it.key} to={it.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <NavLink key={it.to} to={it.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                     <it.icon size={18} />
                     <span>{it.label}</span>
                     {counts[it.key] > 0 && <span className="badge-count">{counts[it.key]}</span>}

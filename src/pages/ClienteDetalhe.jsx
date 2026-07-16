@@ -243,7 +243,7 @@ export default function ClienteDetalhe() {
 
             <Card>
               <CardHead title="Equipamentos vinculados" sub={`${equipamentos.length} equipamento(s)`} icon={<Boxes size={18} />}>
-                <Btn size="sm" icon={<Boxes size={14} />} onClick={() => navigate('/estoque')}>Ver no estoque</Btn>
+                <Btn size="sm" icon={<Boxes size={14} />} onClick={() => navigate('/estoque/equipamentos')}>Ver no estoque</Btn>
               </CardHead>
               <div className="table-wrap">
                 <table className="tbl">

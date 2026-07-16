@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { useParams, Navigate } from 'react-router-dom'
 import {
   Smartphone, Package, Plus, CheckCircle2, Layers, Boxes, Search, Wrench,
   Pencil, Link2, Link2Off, RotateCcw, Ban, XCircle, Upload, Download,
@@ -33,14 +34,23 @@ const CHIP_FILTERS = [
 
 const count = (arr, status) => arr.filter((x) => x.status === status).length
 
+const TABS = {
+  equipamentos: { title: 'Equipamento', subtitle: 'Rastreadores e iscas: disponibilidade, uso, manutenção e chip vinculado.' },
+  chips: { title: 'Chip', subtitle: 'Linhas e ICCIDs: disponibilidade, uso, cancelamento e equipamento vinculado.' },
+  vinculos: { title: 'Equipamento/Chip', subtitle: 'Vínculo entre equipamento e chip por cliente.' },
+}
+
 export default function Estoque() {
   const { db, refetch } = useCollections(['equipamentos', 'chips', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
+  const { tab } = useParams()
 
-  const [tab, setTab] = useState('equipamentos')
   const [statusFilter, setStatusFilter] = useState('todos')
   const [q, setQ] = useState('')
+
+  // Trocar de aba pelo menu zera busca e filtro.
+  useEffect(() => { setStatusFilter('todos'); setQ('') }, [tab])
 
   const [chipOpen, setChipOpen] = useState(false)
   const [chipForm, setChipForm] = useState(emptyChip)
@@ -256,9 +266,12 @@ export default function Estoque() {
   const setChip = (patch) => setChipForm((f) => ({ ...f, ...patch }))
   const setEquip = (patch) => setEquipForm((f) => ({ ...f, ...patch }))
 
+  // Depois dos hooks: aba inválida na URL volta para a primeira.
+  if (!TABS[tab]) return <Navigate to="/estoque/equipamentos" replace />
+
   return (
     <>
-      <PageHead title="Estoque" subtitle="Controle de equipamentos e chips: disponibilidade, uso, manutenção e vinculação.">
+      <PageHead title={TABS[tab].title} subtitle={TABS[tab].subtitle}>
         {tab === 'equipamentos' && (
           <>
             <Btn icon={<Download size={16} />} onClick={baixarModeloEquip}>Baixar modelo</Btn>
@@ -282,14 +295,6 @@ export default function Estoque() {
       {/* inputs de importação (ocultos) */}
       <input ref={equipFileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={importarEquip} />
       <input ref={chipFileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={importarChip} />
-
-      <div className="flex between wrap gap-12" style={{ marginBottom: 16 }}>
-        <Segmented value={tab} onChange={(v) => { setTab(v); setStatusFilter('todos') }} options={[
-          { value: 'equipamentos', label: 'Equipamentos' },
-          { value: 'chips', label: 'Chips' },
-          { value: 'vinculos', label: 'Equipamento/Chip' },
-        ]} />
-      </div>
 
       {tab !== 'vinculos' && (
         <div className="grid grid-4" style={{ marginBottom: 16 }}>

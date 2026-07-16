@@ -1,10 +1,10 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Coins, Plus, Check, AlertTriangle, DollarSign, CheckCircle2, Wallet, Users, Repeat } from 'lucide-react'
-import { api, userName, logAudit } from '../data/api.js'
+import { api, userName, clientName, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, num, pct, fmtDate, todayISO } from '../lib/format.js'
+import { BRL, num, pct, fmtDate, todayISO, uid } from '../lib/format.js'
 import {
   PageHead, Card, Btn, Badge, Modal, Field, EmptyState, Segmented, Stat, StatusBadge, useToast,
 } from '../components/ui.jsx'
@@ -18,24 +18,35 @@ const SERVICOS = [
 ]
 const servicoLabel = (v) => SERVICOS.find((s) => s.value === v)?.label || v
 
-// Valor total de uma comissão (vendedor: fixo + recorrente; técnico: serviço + KM).
+// Vendedor: o valor fixo é por equipamento — o total da venda é fixo × quantidade.
+// Comissões antigas não têm quantidade; nesse caso vale 1 (o fixo já era o total).
+export const totalFixo = (c) => (Number(c.valorFixo) || 0) * (Number(c.quantidadeEquipamentos) || 1)
+
+// Valor total de uma comissão.
+// Vendedor: (fixo × qtd) + recorrente · Técnico: serviço + KM + pedágio + extras.
 export const valorComissao = (c) => {
-  if (c.tipo === 'tecnico') return (Number(c.valorServico) || 0) + (Number(c.km) || 0) * (Number(c.valorKm) || 0)
-  return (Number(c.valorFixo) || 0) + (Number(c.valorRecorrente) || 0)
+  if (c.tipo === 'tecnico') {
+    return (Number(c.valorServico) || 0)
+      + (Number(c.km) || 0) * (Number(c.valorKm) || 0)
+      + (Number(c.pedagio) || 0)
+      + (Number(c.extras) || 0)
+  }
+  return totalFixo(c) + (Number(c.valorRecorrente) || 0)
 }
 
 const emptyForm = (tipo) => ({
   tipo: tipo || 'vendedor',
   pessoaId: '',
-  referencia: '',
+  clientId: '',
   // vendedor
-  valorFixo: '', percentual: '', baseRecorrente: '',
+  quantidadeEquipamentos: '1', valorFixo: '', percentual: '', baseRecorrente: '', obs: '',
   // tecnico
-  tipoServico: 'instalacao', valorServico: '', km: '', valorKm: '', kmManual: false,
+  tipoServico: 'instalacao', valorServico: '', placa: '', equipamentoId: '',
+  km: '', valorKm: '', kmManual: false, pedagio: '', extras: '',
 })
 
 export default function Comissoes() {
-  const { db, refetch } = useCollections(['comissoes', 'users'])
+  const { db, refetch } = useCollections(['comissoes', 'users', 'clients', 'equipamentos'])
   const { user } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
@@ -72,6 +83,10 @@ export default function Comissoes() {
   const pessoasModal = (db.users || []).filter((u) => u.role === roleByTipo(form.tipo))
   const pessoaSel = (db.users || []).find((u) => u.id === form.pessoaId)
 
+  const clientes = db.clients || []
+  const equipamentos = db.equipamentos || []
+  const equipSerial = (id) => equipamentos.find((e) => e.id === id)?.serial || '—'
+
   const abrirModal = () => { setForm(emptyForm(tipo)); setOpen(true) }
 
   const onTipoModal = (v) => setForm(() => emptyForm(v))
@@ -93,42 +108,58 @@ export default function Comissoes() {
     set({ tipoServico, valorServico: (u && campo && u[campo] != null) ? u[campo] : form.valorServico })
   }
 
-  // Prévia do total no modal.
+  // Prévia dos totais no modal.
+  const previaFixo = (Number(form.valorFixo) || 0) * (Number(form.quantidadeEquipamentos) || 0)
   const previa = form.tipo === 'tecnico'
     ? (Number(form.valorServico) || 0) + (Number(form.km) || 0) * (Number(form.valorKm) || 0)
-    : (Number(form.valorFixo) || 0) + (Number(form.baseRecorrente) || 0) * (Number(form.percentual) || 0) / 100
+      + (Number(form.pedagio) || 0) + (Number(form.extras) || 0)
+    : previaFixo + (Number(form.baseRecorrente) || 0) * (Number(form.percentual) || 0) / 100
 
   const salvar = async () => {
     if (!form.pessoaId) { toast('Selecione a pessoa', 'error'); return }
-    if (!form.referencia.trim()) { toast('Informe a referência', 'error'); return }
+    if (!form.clientId) { toast('Selecione o cliente', 'error'); return }
 
     const nova = {
+      id: uid('co'),
       tipo: form.tipo,
       pessoaId: form.pessoaId,
-      referencia: form.referencia.trim(),
+      clientId: form.clientId,
       data: todayISO(),
       status: 'pendente',
     }
 
     if (form.tipo === 'vendedor') {
       const fixo = Number(form.valorFixo) || 0
+      const qtd = Number(form.quantidadeEquipamentos) || 0
       const percentual = Number(form.percentual) || 0
       const base = Number(form.baseRecorrente) || 0
       if (fixo <= 0 && percentual <= 0) { toast('Informe o valor fixo e/ou o percentual recorrente', 'error'); return }
+      if (fixo > 0 && qtd <= 0) { toast('Informe a quantidade de equipamentos', 'error'); return }
+      // Comissão só recorrente (sem fixo) não tem quantidade — grava 1 para não zerar o total.
+      nova.quantidadeEquipamentos = qtd || 1
       nova.valorFixo = fixo
       nova.percentual = percentual
       nova.baseRecorrente = base
       nova.valorRecorrente = +(base * percentual / 100).toFixed(2)
+      nova.obs = form.obs.trim()
     } else {
       const servico = Number(form.valorServico) || 0
       const km = form.km === '' ? null : Number(form.km)
       const valorKm = Number(form.valorKm) || 0
-      if (servico <= 0 && !km) { toast('Informe o valor do serviço e/ou os KM', 'error'); return }
+      const pedagio = Number(form.pedagio) || 0
+      const extras = Number(form.extras) || 0
+      if (servico <= 0 && !km && pedagio <= 0 && extras <= 0) {
+        toast('Informe o valor do serviço, os KM, o pedágio ou os extras', 'error'); return
+      }
       nova.tipoServico = form.tipoServico
       nova.valorServico = servico
+      nova.placa = form.placa.trim().toUpperCase()
+      nova.equipamentoId = form.equipamentoId || null
       nova.km = km
       nova.valorKm = valorKm
       nova.kmManual = !!form.kmManual && km != null
+      nova.pedagio = pedagio
+      nova.extras = extras
     }
 
     try {
@@ -158,7 +189,7 @@ export default function Comissoes() {
 
   return (
     <>
-      <PageHead title="Comissões" subtitle="Vendedores: fixo + variável recorrente · Técnicos: serviço + KM">
+      <PageHead title="Comissões" subtitle="Vendedores: fixo por equipamento + recorrente · Técnicos: serviço + KM + pedágio + extras">
         <Btn icon={<Users size={16} />} onClick={() => navigate('/equipe')}>
           Gerenciar vendedores e técnicos
         </Btn>
@@ -194,14 +225,16 @@ export default function Comissoes() {
             <thead>
               {isTecnico ? (
                 <tr>
-                  <th>Técnico</th><th>Referência</th><th>Serviço</th><th>KM</th>
-                  <th className="right">Serviço</th><th className="right">KM (R$)</th><th className="right">Total</th>
+                  <th>Técnico</th><th>Cliente</th><th>Serviço</th><th>Placa</th><th>Nº equipamento</th><th>KM</th>
+                  <th className="right">Serviço</th><th className="right">KM (R$)</th><th className="right">Pedágio</th>
+                  <th className="right">Extras</th><th className="right">Total</th>
                   <th>Data</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               ) : (
                 <tr>
-                  <th>Vendedor</th><th>Referência</th><th className="right">Fixo</th>
-                  <th className="right">% recorr.</th><th className="right">Recorrente</th><th className="right">Total</th>
+                  <th>Vendedor</th><th>Cliente</th><th className="right">Qtd. equip.</th><th className="right">Fixo (un.)</th>
+                  <th className="right">Valor total</th><th className="right">% recorr.</th><th className="right">Recorrente</th>
+                  <th className="right">Total</th><th>OBS</th>
                   <th>Data</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               )}
@@ -210,10 +243,12 @@ export default function Comissoes() {
               {lista.map((c) => (
                 <tr key={c.id}>
                   <td className="bold">{userName(c.pessoaId)}</td>
-                  <td>{c.referencia}</td>
+                  <td>{clientName(c.clientId)}</td>
                   {isTecnico ? (
                     <>
                       <td><Badge tone="gray">{servicoLabel(c.tipoServico)}</Badge></td>
+                      <td className="mono">{c.placa || <span className="mut">—</span>}</td>
+                      <td className="mono">{c.equipamentoId ? equipSerial(c.equipamentoId) : <span className="mut">—</span>}</td>
                       <td>
                         {c.km != null ? (
                           <div className="flex gap-6 nowrap">
@@ -228,11 +263,15 @@ export default function Comissoes() {
                       </td>
                       <td className="right mono">{BRL(c.valorServico)}</td>
                       <td className="right mono">{BRL((Number(c.km) || 0) * (Number(c.valorKm) || 0))}</td>
+                      <td className="right mono">{BRL(c.pedagio)}</td>
+                      <td className="right mono">{BRL(c.extras)}</td>
                       <td className="right mono bold">{BRL(valorComissao(c))}</td>
                     </>
                   ) : (
                     <>
+                      <td className="right mono">{num(c.quantidadeEquipamentos || 1)}</td>
                       <td className="right mono">{BRL(c.valorFixo)}</td>
+                      <td className="right mono">{BRL(totalFixo(c))}</td>
                       <td className="right mono">{c.percentual ? pct(c.percentual) : '—'}</td>
                       <td className="right mono">
                         <span className="flex gap-6 nowrap" style={{ justifyContent: 'flex-end' }}>
@@ -240,6 +279,9 @@ export default function Comissoes() {
                         </span>
                       </td>
                       <td className="right mono bold">{BRL(valorComissao(c))}</td>
+                      <td className="mut" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.obs || ''}>
+                        {c.obs || '—'}
+                      </td>
                     </>
                   )}
                   <td>{fmtDate(c.data)}</td>
@@ -289,17 +331,28 @@ export default function Comissoes() {
               {pessoasModal.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
-          <Field label="Referência" required hint="Ex.: Venda - Cliente X / OS #1002">
-            <input value={form.referencia} onChange={(e) => set({ referencia: e.target.value })} placeholder="Origem da comissão" />
+          <Field label="Cliente" required hint="Cliente que originou a comissão">
+            <select value={form.clientId} onChange={(e) => set({ clientId: e.target.value })}>
+              <option value="">Selecione</option>
+              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}</option>)}
+            </select>
           </Field>
         </div>
 
         {form.tipo === 'vendedor' ? (
           <>
             <div className="form-row-3">
-              <Field label="Valor fixo (R$)" hint="Por venda">
+              <Field label="Qtd. de equipamentos" required hint="Equipamentos vendidos">
+                <input type="number" step="1" min="1" value={form.quantidadeEquipamentos} onChange={(e) => set({ quantidadeEquipamentos: e.target.value })} placeholder="1" />
+              </Field>
+              <Field label="Valor fixo (R$)" hint="Por equipamento">
                 <input type="number" step="0.01" min="0" value={form.valorFixo} onChange={(e) => set({ valorFixo: e.target.value })} placeholder="50,00" />
               </Field>
+              <Field label="Valor total (R$)" hint="Fixo × quantidade">
+                <input value={BRL(previaFixo)} readOnly tabIndex={-1} style={{ background: 'var(--surface-2)' }} />
+              </Field>
+            </div>
+            <div className="form-row">
               <Field label="Percentual recorrente (%)" hint="Sobre a mensalidade">
                 <input type="number" step="0.1" min="0" value={form.percentual} onChange={(e) => set({ percentual: e.target.value })} placeholder="5" />
               </Field>
@@ -307,9 +360,12 @@ export default function Comissoes() {
                 <input type="number" step="0.01" min="0" value={form.baseRecorrente} onChange={(e) => set({ baseRecorrente: e.target.value })} placeholder="0,00" />
               </Field>
             </div>
+            <Field label="OBS." hint="Gasto com o cliente, combinados, particularidades">
+              <textarea rows={3} value={form.obs} onChange={(e) => set({ obs: e.target.value })} placeholder="Ex.: almoço com o cliente R$ 80,00" />
+            </Field>
             <div className="flex gap-8 soft" style={{ fontSize: 13, alignItems: 'center' }}>
               <Repeat size={15} />
-              Comissão do vendedor = <b>valor fixo</b> + <b>{pct(Number(form.percentual) || 0)}</b> recorrente sobre a mensalidade.
+              Comissão do vendedor = <b>valor total</b> + <b>{pct(Number(form.percentual) || 0)}</b> recorrente sobre a mensalidade.
             </div>
           </>
         ) : (
@@ -324,6 +380,17 @@ export default function Comissoes() {
                 <input type="number" step="0.01" min="0" value={form.valorServico} onChange={(e) => set({ valorServico: e.target.value })} placeholder="0,00" />
               </Field>
             </div>
+            <div className="form-row">
+              <Field label="Placa" hint="Veículo atendido">
+                <input value={form.placa} onChange={(e) => set({ placa: e.target.value.toUpperCase() })} placeholder="ABC1D23" maxLength={8} />
+              </Field>
+              <Field label="Nº do equipamento" hint="Nº de série cadastrado no estoque">
+                <select value={form.equipamentoId} onChange={(e) => set({ equipamentoId: e.target.value })}>
+                  <option value="">Selecione</option>
+                  {equipamentos.map((e) => <option key={e.id} value={e.id}>{e.serial} · {e.modelo}</option>)}
+                </select>
+              </Field>
+            </div>
             <div className="form-row-3">
               <Field label="KM rodados" hint="Deslocamento até o cliente (Tarefa 33)">
                 <input type="number" step="1" min="0" value={form.km} onChange={(e) => set({ km: e.target.value })} placeholder="0" />
@@ -336,6 +403,14 @@ export default function Comissoes() {
                   <input type="checkbox" checked={form.kmManual} onChange={(e) => set({ kmManual: e.target.checked })} style={{ width: 'auto' }} />
                   <span className="flex gap-6" style={{ color: 'var(--amber)' }}><AlertTriangle size={15} /> KM manual</span>
                 </label>
+              </Field>
+            </div>
+            <div className="form-row">
+              <Field label="Pedágio (R$)" hint="Total gasto no deslocamento">
+                <input type="number" step="0.01" min="0" value={form.pedagio} onChange={(e) => set({ pedagio: e.target.value })} placeholder="0,00" />
+              </Field>
+              <Field label="Valores extras (R$)" hint="Alimentação, materiais, outros">
+                <input type="number" step="0.01" min="0" value={form.extras} onChange={(e) => set({ extras: e.target.value })} placeholder="0,00" />
               </Field>
             </div>
           </>

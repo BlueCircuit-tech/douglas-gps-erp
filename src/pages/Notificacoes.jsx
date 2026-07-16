@@ -172,7 +172,7 @@ export default function Notificacoes() {
       case 'pagar':
         return <Btn size="sm" icon={<Wallet size={14} />} onClick={() => navigate('/financeiro')}>Ver contas</Btn>
       case 'chips':
-        return <Btn size="sm" icon={<Smartphone size={14} />} onClick={() => navigate('/estoque')}>Ver estoque</Btn>
+        return <Btn size="sm" icon={<Smartphone size={14} />} onClick={() => navigate('/estoque/chips')}>Ver chips</Btn>
       case 'os':
         return <Btn size="sm" icon={<Wrench size={14} />} onClick={() => navigate(`/os/${a.osId}`)}>Abrir OS</Btn>
       case 'aniversario':

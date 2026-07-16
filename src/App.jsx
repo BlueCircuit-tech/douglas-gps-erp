@@ -54,7 +54,8 @@ export default function App() {
       <Route path="/comissoes" element={<Protected module="comissoes"><Comissoes /></Protected>} />
       <Route path="/os" element={<Protected module="os"><OrdensServico /></Protected>} />
       <Route path="/os/:id" element={<Protected module="os"><OrdemDetalhe /></Protected>} />
-      <Route path="/estoque" element={<Protected module="estoque"><Estoque /></Protected>} />
+      <Route path="/estoque" element={<Navigate to="/estoque/equipamentos" replace />} />
+      <Route path="/estoque/:tab" element={<Protected module="estoque"><Estoque /></Protected>} />
       <Route path="/financeiro" element={<Protected module="financeiro"><Financeiro /></Protected>} />
       <Route path="/boletos" element={<Protected module="boletos"><Boletos /></Protected>} />
       <Route path="/contabilidade" element={<Protected module="contabilidade"><Contabilidade /></Protected>} />

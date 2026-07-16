@@ -12,7 +12,7 @@ const ATALHOS = [
   { to: '/clientes', label: 'Clientes', tone: 'blue', icon: Users, desc: 'Cadastro, histórico e dados de contato dos clientes e leads.' },
   { to: '/funil', label: 'Funil de Vendas', tone: 'purple', icon: TrendingUp, desc: 'Acompanhe leads pelo Kanban até o fechamento.' },
   { to: '/os', label: 'Ordens de Serviço', tone: 'amber', icon: Wrench, desc: 'Instalações, manutenções e retiradas com checklist.' },
-  { to: '/estoque', label: 'Estoque', tone: 'green', icon: Boxes, desc: 'Chips e equipamentos disponíveis, em uso ou em defeito.' },
+  { to: '/estoque/equipamentos', label: 'Estoque', tone: 'green', icon: Boxes, desc: 'Chips e equipamentos disponíveis, em uso ou em defeito.' },
   { to: '/financeiro', label: 'Financeiro', tone: 'blue', icon: Wallet, desc: 'Contas a receber, a pagar e controle de despesas.' },
   { to: '/boletos', label: 'Boletos', tone: 'red', icon: Receipt, desc: 'Emissão e baixa de boletos via gateway de cobrança.' },
   { to: '/contabilidade', label: 'Contabilidade', tone: 'gray', icon: Calculator, desc: 'Notas fiscais (NFS-e) e fechamento contábil.' },
