@@ -4,7 +4,7 @@ import { UserPlus, Search, Users, Phone, Mail } from 'lucide-react'
 import { api, clientsApi, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, maskDoc, maskPhone, uid } from '../lib/format.js'
+import { BRL, maskDoc, fone, uid } from '../lib/format.js'
 import {
   PageHead, Card, Btn, Badge, Avatar, Modal, EmptyState, Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
@@ -114,8 +114,8 @@ export default function Clientes() {
                     </td>
                     <td><Badge tone={c.tipo === 'PJ' ? 'blue' : 'purple'}>{c.tipo}</Badge></td>
                     <td>
-                      <div className="flex gap-6 mut" style={{ fontSize: 12.5 }}><Phone size={13} /> {maskPhone(c.whatsapp)}</div>
-                      <div className="flex gap-6 mut" style={{ fontSize: 12.5 }}><Mail size={13} /> {c.email}</div>
+                      <div className="flex gap-6 mut" style={{ fontSize: 12.5 }}><Phone size={13} /> {fone(c.celularDdd, c.celularNum)}</div>
+                      <div className="flex gap-6 mut" style={{ fontSize: 12.5 }}><Mail size={13} /> {c.emailFinanceiro}</div>
                     </td>
                     <td className="right mono">{c.quantidadeEquipamentos ?? 0}</td>
                     <td className="right mono bold">{BRL(mensalidadeTotal(c))}</td>

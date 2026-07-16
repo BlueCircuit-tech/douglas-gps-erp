@@ -1,27 +1,34 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import {
   Smartphone, Package, Plus, CheckCircle2, Layers, Boxes, Search, Wrench,
-  Pencil, Link2, Link2Off, RotateCcw,
+  Pencil, Link2, Link2Off, RotateCcw, Ban, XCircle, Upload, Download,
 } from 'lucide-react'
 import { api, clientName, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, maskPhone, uid } from '../lib/format.js'
+import { BRL, maskPhone, uid, fmtDate, todayISO } from '../lib/format.js'
+import { lerPlanilha, baixarModelo } from '../lib/planilha.js'
 import {
   PageHead, Card, Btn, Badge, Stat, Field, EmptyState, Modal, Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
 
 const OPERADORAS = ['Vivo', 'Claro', 'TIM', 'Arqia']
 
-const emptyChip = () => ({ id: null, iccid: '', linha: '', operadora: 'Vivo', valor: 25 })
-const emptyEquip = () => ({ id: null, modelo: '', serial: '', tipo: 'Rastreador', valor: 220 })
+const emptyChip = () => ({ id: null, iccid: '', linha: '', operadora: 'Vivo', valor: 25, data: todayISO() })
+const emptyEquip = () => ({ id: null, modelo: '', serial: '', tipo: 'Rastreador', valor: 220, data: todayISO() })
 
-// Status ativos (sem defeituoso/cancelado — pedido do cliente).
-const STATUS_FILTERS = [
+// Filtros de status por aba (Equipamentos usa Manutenção; Chips usa Cancelado).
+const EQUIP_FILTERS = [
   { value: 'todos', label: 'Todos' },
   { value: 'disponivel', label: 'Disponíveis' },
   { value: 'em_uso', label: 'Em uso' },
   { value: 'manutencao', label: 'Manutenção' },
+]
+const CHIP_FILTERS = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'disponivel', label: 'Disponíveis' },
+  { value: 'em_uso', label: 'Em uso' },
+  { value: 'cancelado', label: 'Cancelado' },
 ]
 
 const count = (arr, status) => arr.filter((x) => x.status === status).length
@@ -41,35 +48,54 @@ export default function Estoque() {
   const [equipOpen, setEquipOpen] = useState(false)
   const [equipForm, setEquipForm] = useState(emptyEquip)
 
+  // Cancelamento de chip. { chip, dataCancelamento, protocolo }
+  const [cancelForm, setCancelForm] = useState(null)
+
   // Vínculo chip ↔ equipamento. { kind: 'chip'|'equip', item }
   const [vinculo, setVinculo] = useState(null)
+
+  const equipFileRef = useRef(null)
+  const chipFileRef = useRef(null)
 
   const chips = db.chips || []
   const equipamentos = db.equipamentos || []
 
+  const isChips = tab === 'chips'
+
   const filtered = useMemo(() => {
-    const base = tab === 'chips' ? chips : equipamentos
+    const base = isChips ? chips : equipamentos
     const term = q.trim().toLowerCase()
     return base.filter((x) => {
       if (statusFilter !== 'todos' && x.status !== statusFilter) return false
       if (!term) return true
-      const txt = tab === 'chips'
+      const txt = isChips
         ? `${x.iccid} ${x.linha} ${x.operadora}`.toLowerCase()
         : `${x.modelo} ${x.serial} ${x.tipo}`.toLowerCase()
       return txt.includes(term) || clientName(x.clientId).toLowerCase().includes(term)
     })
-  }, [tab, chips, equipamentos, statusFilter, q])
+  }, [isChips, chips, equipamentos, statusFilter, q])
 
-  const kpiList = tab === 'chips' ? chips : equipamentos
+  // Aba combinada Equipamento/Chip — lista todos os equipamentos (com busca).
+  const vinculosList = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    return equipamentos.filter((e) => {
+      if (!term) return true
+      const chip = chips.find((c) => c.id === e.chipId)
+      const txt = `${e.modelo} ${e.serial} ${chip ? chip.iccid + ' ' + chip.operadora : ''}`.toLowerCase()
+      return txt.includes(term) || clientName(e.clientId).toLowerCase().includes(term)
+    })
+  }, [equipamentos, chips, q])
 
-  // ---------- Manutenção / voltar para disponível ----------
-  const alternarManutencao = async (coll, item) => {
+  const kpiList = isChips ? chips : equipamentos
+  const statusFilters = isChips ? CHIP_FILTERS : EQUIP_FILTERS
+
+  // ---------- Manutenção (apenas equipamentos) ----------
+  const alternarManutencao = async (item) => {
     const emManutencao = item.status === 'manutencao'
     const novoStatus = emManutencao ? (item.clientId ? 'em_uso' : 'disponivel') : 'manutencao'
     try {
-      await api[coll].update(item.id, { status: novoStatus })
-      const ent = coll === 'chips' ? 'chip' : 'equipamento'
-      logAudit(user.id, 'editar', ent, `${emManutencao ? 'Retorno de manutenção' : 'Enviado para manutenção'}: ${item.iccid || item.serial}`)
+      await api.equipamentos.update(item.id, { status: novoStatus })
+      logAudit(user.id, 'editar', 'equipamento', `${emManutencao ? 'Retorno de manutenção' : 'Enviado para manutenção'}: ${item.serial}`)
       toast(emManutencao ? 'Item retornou da manutenção' : 'Item enviado para manutenção')
       refetch()
     } catch (e) {
@@ -77,19 +103,38 @@ export default function Estoque() {
     }
   }
 
+  // ---------- Cancelamento de chip ----------
+  const abrirCancelamento = (chip) => setCancelForm({ chip, dataCancelamento: todayISO(), protocolo: '' })
+
+  const confirmarCancelamento = async () => {
+    if (!cancelForm) return
+    if (!cancelForm.protocolo.trim()) { toast('Informe o nº de protocolo', 'error'); return }
+    const { chip, dataCancelamento, protocolo } = cancelForm
+    try {
+      await api.chips.update(chip.id, { status: 'cancelado', dataCancelamento, protocolo: protocolo.trim(), equipamentoId: null, clientId: null })
+      if (chip.equipamentoId) await api.equipamentos.update(chip.equipamentoId, { chipId: null })
+      logAudit(user.id, 'editar', 'chip', `Chip ${chip.iccid} cancelado (protocolo ${protocolo.trim()})`)
+      toast('Chip cancelado')
+      setCancelForm(null)
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
   // ---------- Editar ----------
-  const editarChip = (c) => { setChipForm({ id: c.id, iccid: c.iccid, linha: c.linha, operadora: c.operadora, valor: c.valor }); setChipOpen(true) }
-  const editarEquip = (e) => { setEquipForm({ id: e.id, modelo: e.modelo, serial: e.serial, tipo: e.tipo, valor: e.valor }); setEquipOpen(true) }
+  const editarChip = (c) => { setChipForm({ id: c.id, iccid: c.iccid, linha: c.linha, operadora: c.operadora, valor: c.valor, data: c.data || todayISO() }); setChipOpen(true) }
+  const editarEquip = (e) => { setEquipForm({ id: e.id, modelo: e.modelo, serial: e.serial, tipo: e.tipo, valor: e.valor, data: e.data || todayISO() }); setEquipOpen(true) }
 
   const salvarChip = async () => {
     if (!chipForm.iccid.trim()) { toast('Informe o ICCID', 'error'); return }
     try {
       if (chipForm.id) {
-        await api.chips.update(chipForm.id, { iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0 })
+        await api.chips.update(chipForm.id, { iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, data: chipForm.data })
         logAudit(user.id, 'editar', 'chip', `Chip ${chipForm.iccid.trim()} editado`)
         toast('Chip atualizado')
       } else {
-        await api.chips.insert({ id: uid('ch'), iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, status: 'disponivel', clientId: null, equipamentoId: null })
+        await api.chips.insert({ id: uid('ch'), iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, data: chipForm.data, status: 'disponivel', clientId: null, equipamentoId: null })
         logAudit(user.id, 'criar', 'chip', `Novo chip ${chipForm.iccid.trim()} (${chipForm.operadora})`)
         toast('Chip adicionado ao estoque')
       }
@@ -106,11 +151,11 @@ export default function Estoque() {
     if (!equipForm.serial.trim()) { toast('Informe o nº de série', 'error'); return }
     try {
       if (equipForm.id) {
-        await api.equipamentos.update(equipForm.id, { modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0 })
+        await api.equipamentos.update(equipForm.id, { modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, data: equipForm.data })
         logAudit(user.id, 'editar', 'equipamento', `Equipamento ${equipForm.serial.trim()} editado`)
         toast('Equipamento atualizado')
       } else {
-        await api.equipamentos.insert({ id: uid('eq'), modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, status: 'disponivel', clientId: null, chipId: null })
+        await api.equipamentos.insert({ id: uid('eq'), modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, data: equipForm.data, status: 'disponivel', clientId: null, chipId: null })
         logAudit(user.id, 'criar', 'equipamento', `Novo equipamento ${equipForm.serial.trim()} (${equipForm.modelo.trim()})`)
         toast('Equipamento adicionado ao estoque')
       }
@@ -122,6 +167,50 @@ export default function Estoque() {
     }
   }
 
+  // ---------- Importação / modelo de planilha ----------
+  const baixarModeloEquip = () => baixarModelo('modelo-equipamentos.xlsx', ['Modelo', 'Serial', 'Tipo', 'Valor', 'Data'], { Modelo: 'GT06N', Serial: 'GT06N-000999', Tipo: 'Rastreador', Valor: 220, Data: todayISO() })
+  const baixarModeloChip = () => baixarModelo('modelo-chips.xlsx', ['ICCID', 'Linha', 'Operadora', 'Valor', 'Data'], { ICCID: '8955010012345670000', Linha: '11988880000', Operadora: 'Vivo', Valor: 25, Data: todayISO() })
+
+  const importarEquip = async (ev) => {
+    const file = ev.target.files?.[0]
+    if (!file) return
+    try {
+      const rows = await lerPlanilha(file)
+      const lista = rows
+        .filter((row) => row.Modelo && row.Serial)
+        .map((row) => ({ id: uid('eq'), modelo: String(row.Modelo).trim(), serial: String(row.Serial).trim(), tipo: row.Tipo || 'Rastreador', valor: Number(row.Valor) || 0, data: row.Data || todayISO(), status: 'disponivel', clientId: null, chipId: null }))
+      if (!lista.length) { toast('Nenhuma linha válida na planilha', 'error'); return }
+      await api.equipamentos.insertMany(lista)
+      logAudit(user.id, 'criar', 'equipamento', `Importação de ${lista.length} equipamento(s) via planilha`)
+      toast(`${lista.length} item(ns) importado(s)`)
+      refetch()
+    } catch (e) {
+      toast('Erro ao importar: ' + e.message, 'error')
+    } finally {
+      if (equipFileRef.current) equipFileRef.current.value = ''
+    }
+  }
+
+  const importarChip = async (ev) => {
+    const file = ev.target.files?.[0]
+    if (!file) return
+    try {
+      const rows = await lerPlanilha(file)
+      const lista = rows
+        .filter((row) => row.ICCID)
+        .map((row) => ({ id: uid('ch'), iccid: String(row.ICCID).trim(), linha: String(row.Linha || '').trim(), operadora: row.Operadora || 'Vivo', valor: Number(row.Valor) || 0, data: row.Data || todayISO(), status: 'disponivel', clientId: null, equipamentoId: null }))
+      if (!lista.length) { toast('Nenhuma linha válida na planilha', 'error'); return }
+      await api.chips.insertMany(lista)
+      logAudit(user.id, 'criar', 'chip', `Importação de ${lista.length} chip(s) via planilha`)
+      toast(`${lista.length} item(ns) importado(s)`)
+      refetch()
+    } catch (e) {
+      toast('Erro ao importar: ' + e.message, 'error')
+    } finally {
+      if (chipFileRef.current) chipFileRef.current.value = ''
+    }
+  }
+
   // ---------- Vinculação ----------
   const chipById = (id) => chips.find((c) => c.id === id)
   const equipById = (id) => equipamentos.find((e) => e.id === id)
@@ -130,7 +219,7 @@ export default function Estoque() {
   const alvosVinculo = useMemo(() => {
     if (!vinculo) return []
     if (vinculo.kind === 'chip') return equipamentos.filter((e) => e.status !== 'manutencao' && !e.chipId)
-    return chips.filter((c) => c.status !== 'manutencao' && !c.equipamentoId)
+    return chips.filter((c) => c.status !== 'manutencao' && c.status !== 'cancelado' && !c.equipamentoId)
   }, [vinculo, equipamentos, chips])
 
   const confirmarVinculo = async (alvo) => {
@@ -170,30 +259,48 @@ export default function Estoque() {
   return (
     <>
       <PageHead title="Estoque" subtitle="Controle de equipamentos e chips: disponibilidade, uso, manutenção e vinculação.">
-        {tab === 'chips' ? (
-          <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setChipForm(emptyChip()); setChipOpen(true) }}>
-            Adicionar chip
-          </Btn>
-        ) : (
-          <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setEquipForm(emptyEquip()); setEquipOpen(true) }}>
-            Adicionar equipamento
-          </Btn>
+        {tab === 'equipamentos' && (
+          <>
+            <Btn icon={<Download size={16} />} onClick={baixarModeloEquip}>Baixar modelo</Btn>
+            <Btn icon={<Upload size={16} />} onClick={() => equipFileRef.current?.click()}>Importar planilha</Btn>
+            <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setEquipForm(emptyEquip()); setEquipOpen(true) }}>
+              Adicionar equipamento
+            </Btn>
+          </>
+        )}
+        {tab === 'chips' && (
+          <>
+            <Btn icon={<Download size={16} />} onClick={baixarModeloChip}>Baixar modelo</Btn>
+            <Btn icon={<Upload size={16} />} onClick={() => chipFileRef.current?.click()}>Importar planilha</Btn>
+            <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setChipForm(emptyChip()); setChipOpen(true) }}>
+              Adicionar chip
+            </Btn>
+          </>
         )}
       </PageHead>
+
+      {/* inputs de importação (ocultos) */}
+      <input ref={equipFileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={importarEquip} />
+      <input ref={chipFileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={importarChip} />
 
       <div className="flex between wrap gap-12" style={{ marginBottom: 16 }}>
         <Segmented value={tab} onChange={(v) => { setTab(v); setStatusFilter('todos') }} options={[
           { value: 'equipamentos', label: 'Equipamentos' },
           { value: 'chips', label: 'Chips' },
+          { value: 'vinculos', label: 'Equipamento/Chip' },
         ]} />
       </div>
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <Stat icon={<Boxes size={18} />} tone="purple" label="Total" value={kpiList.length} />
-        <Stat icon={<CheckCircle2 size={18} />} tone="green" label="Disponíveis" value={count(kpiList, 'disponivel')} />
-        <Stat icon={<Layers size={18} />} tone="blue" label="Em uso" value={count(kpiList, 'em_uso')} />
-        <Stat icon={<Wrench size={18} />} tone="amber" label="Manutenção" value={count(kpiList, 'manutencao')} />
-      </div>
+      {tab !== 'vinculos' && (
+        <div className="grid grid-4" style={{ marginBottom: 16 }}>
+          <Stat icon={<Boxes size={18} />} tone="purple" label="Total" value={kpiList.length} />
+          <Stat icon={<CheckCircle2 size={18} />} tone="green" label="Disponíveis" value={count(kpiList, 'disponivel')} />
+          <Stat icon={<Layers size={18} />} tone="blue" label="Em uso" value={count(kpiList, 'em_uso')} />
+          {isChips
+            ? <Stat icon={<XCircle size={18} />} tone="red" label="Cancelado" value={count(kpiList, 'cancelado')} />
+            : <Stat icon={<Wrench size={18} />} tone="amber" label="Manutenção" value={count(kpiList, 'manutencao')} />}
+        </div>
+      )}
 
       <Card>
         <div className="card-head">
@@ -202,46 +309,53 @@ export default function Estoque() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder={tab === 'chips' ? 'Buscar ICCID, linha, operadora...' : 'Buscar modelo, série, tipo...'}
+              placeholder={isChips ? 'Buscar ICCID, linha, operadora...' : 'Buscar modelo, série, tipo...'}
               style={{ border: 'none', background: 'transparent', outline: 'none', flex: 1 }}
             />
           </div>
           <div className="spacer" />
-          <Segmented value={statusFilter} onChange={setStatusFilter} options={STATUS_FILTERS} />
+          {tab !== 'vinculos' && <Segmented value={statusFilter} onChange={setStatusFilter} options={statusFilters} />}
         </div>
 
         <div className="table-wrap">
-          {tab === 'chips' ? (
+          {tab === 'chips' && (
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>ICCID</th><th>Linha</th><th>Operadora</th><th className="right">Valor</th>
-                  <th>Equipamento</th><th>Cliente</th><th>Status</th><th className="right">Ações</th>
+                  <th>ICCID</th><th>Linha</th><th>Operadora</th><th className="right">Valor</th><th>Data</th>
+                  <th>Equipamento</th><th>Cliente</th><th>Status</th><th>Cancelamento</th><th className="right">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((c) => {
                   const eq = equipById(c.equipamentoId)
+                  const cancelado = c.status === 'cancelado'
                   return (
                     <tr key={c.id}>
                       <td className="mono">{c.iccid}</td>
                       <td className="mono">{maskPhone(c.linha)}</td>
                       <td><Badge tone="gray">{c.operadora}</Badge></td>
                       <td className="right mono">{BRL(c.valor)}</td>
+                      <td>{fmtDate(c.data)}</td>
                       <td className="mono">{eq ? eq.serial : <span className="mut">—</span>}</td>
                       <td>{clientName(c.clientId)}</td>
                       <td><StatusBadge status={c.status} /></td>
+                      <td>
+                        {cancelado
+                          ? <span><b>{c.protocolo || '—'}</b> · {fmtDate(c.dataCancelamento)}</span>
+                          : <span className="mut">—</span>}
+                      </td>
                       <td className="right nowrap">
                         <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
                           <Btn size="sm" icon={<Pencil size={13} />} onClick={() => editarChip(c)}>Editar</Btn>
                           {eq ? (
                             <Btn size="sm" icon={<Link2Off size={13} />} onClick={() => desvincular(eq)}>Desvincular</Btn>
                           ) : (
-                            c.status !== 'manutencao' && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'chip', item: c })}>Vincular</Btn>
+                            !cancelado && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'chip', item: c })}>Vincular</Btn>
                           )}
-                          <Btn size="sm" icon={c.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao('chips', c)}>
-                            {c.status === 'manutencao' ? 'Disponível' : 'Manutenção'}
-                          </Btn>
+                          {!cancelado && (
+                            <Btn size="sm" variant="danger" icon={<Ban size={13} />} onClick={() => abrirCancelamento(c)}>Cancelar</Btn>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -249,11 +363,13 @@ export default function Estoque() {
                 })}
               </tbody>
             </table>
-          ) : (
+          )}
+
+          {tab === 'equipamentos' && (
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Modelo</th><th>Nº de série</th><th>Tipo</th><th className="right">Valor</th>
+                  <th>Modelo</th><th>Nº de série</th><th>Tipo</th><th className="right">Valor</th><th>Data</th>
                   <th>Chip vinculado</th><th>Cliente</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               </thead>
@@ -266,7 +382,8 @@ export default function Estoque() {
                       <td className="mono">{e.serial}</td>
                       <td><Badge tone="blue">{e.tipo}</Badge></td>
                       <td className="right mono">{BRL(e.valor)}</td>
-                      <td className="mono">{chip ? `${chip.operadora} · ${maskPhone(chip.linha)}` : <span className="mut">— sem chip —</span>}</td>
+                      <td>{fmtDate(e.data)}</td>
+                      <td className="mono">{chip ? chip.iccid : <span className="mut">— sem chip —</span>}</td>
                       <td>{clientName(e.clientId)}</td>
                       <td><StatusBadge status={e.status} /></td>
                       <td className="right nowrap">
@@ -277,7 +394,7 @@ export default function Estoque() {
                           ) : (
                             e.status !== 'manutencao' && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'equip', item: e })}>Vincular chip</Btn>
                           )}
-                          <Btn size="sm" icon={e.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao('equipamentos', e)}>
+                          <Btn size="sm" icon={e.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao(e)}>
                             {e.status === 'manutencao' ? 'Disponível' : 'Manutenção'}
                           </Btn>
                         </div>
@@ -289,10 +406,45 @@ export default function Estoque() {
             </table>
           )}
 
-          {!filtered.length && (
+          {tab === 'vinculos' && (
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Equipamento</th><th>Modelo</th><th>Chip (ICCID)</th><th>Operadora</th>
+                  <th>Cliente</th><th>Status</th><th className="right">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vinculosList.map((e) => {
+                  const chip = chipById(e.chipId)
+                  return (
+                    <tr key={e.id}>
+                      <td className="mono">{e.serial}</td>
+                      <td className="bold">{e.modelo}</td>
+                      <td className="mono">{chip ? chip.iccid : <span className="mut">— sem chip —</span>}</td>
+                      <td>{chip ? <Badge tone="gray">{chip.operadora}</Badge> : <span className="mut">—</span>}</td>
+                      <td>{clientName(e.clientId)}</td>
+                      <td><StatusBadge status={e.status} /></td>
+                      <td className="right nowrap">
+                        <div className="flex gap-6" style={{ justifyContent: 'flex-end' }}>
+                          {chip ? (
+                            <Btn size="sm" icon={<Link2Off size={13} />} onClick={() => desvincular(e)}>Desvincular</Btn>
+                          ) : (
+                            e.status !== 'manutencao' && <Btn size="sm" variant="primary" icon={<Link2 size={13} />} onClick={() => setVinculo({ kind: 'equip', item: e })}>Vincular</Btn>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {((tab !== 'vinculos' && !filtered.length) || (tab === 'vinculos' && !vinculosList.length)) && (
             <EmptyState
-              icon={tab === 'chips' ? <Smartphone size={40} /> : <Boxes size={40} />}
-              title={`Nenhum ${tab === 'chips' ? 'chip' : 'equipamento'} encontrado`}
+              icon={isChips ? <Smartphone size={40} /> : <Boxes size={40} />}
+              title={`Nenhum ${isChips ? 'chip' : 'equipamento'} encontrado`}
               sub="Ajuste os filtros ou cadastre um novo item no estoque."
             />
           )}
@@ -320,9 +472,14 @@ export default function Estoque() {
             </select>
           </Field>
         </div>
-        <Field label="Valor (R$)">
-          <input type="number" step="0.01" value={chipForm.valor} onChange={(e) => setChip({ valor: e.target.value })} />
-        </Field>
+        <div className="form-row">
+          <Field label="Valor (R$)">
+            <input type="number" step="0.01" value={chipForm.valor} onChange={(e) => setChip({ valor: e.target.value })} />
+          </Field>
+          <Field label="Data de cadastro">
+            <input type="date" value={chipForm.data} onChange={(e) => setChip({ data: e.target.value })} />
+          </Field>
+        </div>
         {!chipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O chip entra no estoque com status <b>Disponível</b>.</div>}
       </Modal>
 
@@ -350,7 +507,35 @@ export default function Estoque() {
             <input type="number" step="0.01" value={equipForm.valor} onChange={(e) => setEquip({ valor: e.target.value })} />
           </Field>
         </div>
+        <Field label="Data de cadastro">
+          <input type="date" value={equipForm.data} onChange={(e) => setEquip({ data: e.target.value })} />
+        </Field>
         {!equipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O equipamento entra no estoque com status <b>Disponível</b>.</div>}
+      </Modal>
+
+      {/* ---- Modal: cancelar chip ---- */}
+      <Modal
+        open={!!cancelForm}
+        onClose={() => setCancelForm(null)}
+        title="Cancelar chip"
+        icon={<Ban size={20} color="var(--red)" />}
+        footer={<><Btn onClick={() => setCancelForm(null)}>Fechar</Btn><Btn variant="danger" onClick={confirmarCancelamento}>Confirmar cancelamento</Btn></>}
+      >
+        {cancelForm && (
+          <>
+            <div className="soft" style={{ marginBottom: 12 }}>
+              Cancelando o chip <b className="mono">{cancelForm.chip.iccid}</b> ({cancelForm.chip.operadora}). Esta ação libera o equipamento vinculado, se houver.
+            </div>
+            <div className="form-row">
+              <Field label="Data do cancelamento">
+                <input type="date" value={cancelForm.dataCancelamento} onChange={(e) => setCancelForm((f) => ({ ...f, dataCancelamento: e.target.value }))} />
+              </Field>
+              <Field label="Nº de protocolo" required>
+                <input value={cancelForm.protocolo} onChange={(e) => setCancelForm((f) => ({ ...f, protocolo: e.target.value }))} placeholder="Protocolo da operadora" />
+              </Field>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ---- Modal: vincular chip ↔ equipamento ---- */}

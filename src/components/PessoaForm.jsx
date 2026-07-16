@@ -1,52 +1,60 @@
-import { MapPin, Users2, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { MapPin, Users2, Plus, Trash2, Search } from 'lucide-react'
 import { Field, Segmented, Btn } from './ui.jsx'
 import { uid } from '../lib/format.js'
+import { buscarCep, buscarCnpj } from '../lib/lookup.js'
 
 const PRAZOS = [12, 24, 36, 48]
+const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 
 export const novoContato = () => ({ id: uid('cti'), nome: '', cpf: '', rg: '', aniversario: '', whatsapp: '', email: '' })
 
-// Formulário vazio. kind: 'cliente' | 'fornecedor'
 export const emptyPessoa = (kind = 'cliente') => ({
   tipo: 'PJ', status: kind === 'cliente' ? 'lead' : 'ativo', ativo: kind !== 'cliente',
-  razaoSocial: '', nomeFantasia: '', cpfCnpj: '', ie: '',
-  email: '', whatsapp: '', telefoneFixo: '', emailFinanceiro: '', whatsappFinanceiro: '', site: '',
+  razaoSocial: '', nomeFantasia: '', cpfCnpj: '', ie: '', rg: '',
+  telefoneFixoDdd: '', telefoneFixoNum: '', celularDdd: '', celularNum: '', site: '',
   endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '' },
   contatos: [],
   observacoes: '',
   ...(kind === 'cliente'
     ? {
+        emailFinanceiro: '', whatsappFinanceiro: '',
         stage: 'novo', planoId: 'p_basico', vendedorId: '',
         valorMensal: 79.9, valorInstalacao: 150, quantidadeEquipamentos: 1, prazoMeses: 12,
+        dataAtivacao: '', dataCancelamento: '',
         historicoVendas: [], conversas: [],
       }
-    : { categoria: 'Equipamentos', prazoPagamento: 30 }),
+    : {}),
 })
 
-// Normaliza um registro existente para edição no formulário.
 export const fromPessoa = (c, kind = 'cliente') => ({
   tipo: c.tipo || 'PJ', status: c.status || (kind === 'cliente' ? 'lead' : 'ativo'), ativo: !!c.ativo,
   razaoSocial: c.razaoSocial || '', nomeFantasia: c.nomeFantasia || '',
-  cpfCnpj: c.cpfCnpj || '', ie: c.ie || '',
-  email: c.email || '', whatsapp: c.whatsapp || '',
-  telefoneFixo: c.telefoneFixo || '', emailFinanceiro: c.emailFinanceiro || '',
-  whatsappFinanceiro: c.whatsappFinanceiro || '', site: c.site || '',
+  cpfCnpj: c.cpfCnpj || '', ie: c.ie || '', rg: c.rg || '',
+  telefoneFixoDdd: c.telefoneFixoDdd || '', telefoneFixoNum: c.telefoneFixoNum || '',
+  celularDdd: c.celularDdd || '', celularNum: c.celularNum || '', site: c.site || '',
   endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', ...(c.endereco || {}) },
   contatos: (c.contatos || []).map((ct) => ({ ...novoContato(), ...ct })),
   observacoes: c.observacoes || '',
   ...(kind === 'cliente'
     ? {
+        emailFinanceiro: c.emailFinanceiro || '', whatsappFinanceiro: c.whatsappFinanceiro || '',
         planoId: c.planoId || '', vendedorId: c.vendedorId || '',
         valorMensal: c.valorMensal ?? 0, valorInstalacao: c.valorInstalacao ?? 0,
         quantidadeEquipamentos: c.quantidadeEquipamentos ?? 0, prazoMeses: c.prazoMeses ?? 12,
+        dataAtivacao: c.dataAtivacao || '', dataCancelamento: c.dataCancelamento || '',
       }
-    : { categoria: c.categoria || 'Equipamentos', prazoPagamento: c.prazoPagamento ?? 30 }),
+    : {}),
 })
 
 export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
   const isCliente = kind === 'cliente'
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
   const setEnd = (patch) => setForm((f) => ({ ...f, endereco: { ...f.endereco, ...patch } }))
+
+  const [buscandoCep, setBuscandoCep] = useState(false)
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false)
+  const [msg, setMsg] = useState('')
 
   const contatos = form.contatos || []
   const addContato = () => { if (contatos.length >= 3) return; set({ contatos: [...contatos, novoContato()] }) }
@@ -58,7 +66,29 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
     set({ planoId, valorMensal: p?.valorMensal ?? form.valorMensal, valorInstalacao: p?.valorInstalacao ?? form.valorInstalacao })
   }
   const vendedores = (db.users || []).filter((u) => u.role === 'vendedor')
-  const total = (Number(form.valorMensal) || 0) * (Number(form.quantidadeEquipamentos) || 0)
+  const qtd = Number(form.quantidadeEquipamentos) || 0
+  const totalMensal = (Number(form.valorMensal) || 0) * qtd
+  const totalInstalacao = (Number(form.valorInstalacao) || 0) * qtd
+
+  // ---- Busca automática ----
+  const onBuscarCep = async () => {
+    setMsg(''); setBuscandoCep(true)
+    const r = await buscarCep(form.endereco.cep)
+    setBuscandoCep(false)
+    if (!r) { setMsg('CEP não encontrado.'); return }
+    setEnd({ logradouro: r.logradouro, bairro: r.bairro, cidade: r.cidade, uf: r.uf })
+  }
+  const onBuscarCnpj = async () => {
+    setMsg(''); setBuscandoCnpj(true)
+    const r = await buscarCnpj(form.cpfCnpj)
+    setBuscandoCnpj(false)
+    if (!r) { setMsg('CNPJ não encontrado.'); return }
+    set({
+      razaoSocial: r.razaoSocial || form.razaoSocial,
+      nomeFantasia: r.nomeFantasia || form.nomeFantasia,
+      endereco: { ...form.endereco, ...r.endereco },
+    })
+  }
 
   return (
     <>
@@ -76,33 +106,56 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
         </Field>
       </div>
       <div className="form-row">
-        <Field label={form.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>
-          <input value={form.cpfCnpj} onChange={(e) => set({ cpfCnpj: e.target.value })} placeholder="Somente números" />
+        <Field label={form.tipo === 'PJ' ? 'CNPJ' : 'CPF'} hint={form.tipo === 'PJ' ? 'Clique em buscar para preencher automaticamente' : undefined}>
+          <div className="flex gap-8">
+            <input value={form.cpfCnpj} onChange={(e) => set({ cpfCnpj: e.target.value })} placeholder="Somente números" style={{ flex: 1 }} />
+            {form.tipo === 'PJ' && (
+              <Btn size="sm" icon={<Search size={14} />} onClick={onBuscarCnpj} disabled={buscandoCnpj}>{buscandoCnpj ? '...' : 'Buscar'}</Btn>
+            )}
+          </div>
         </Field>
-        <Field label="Inscrição estadual">
-          <input value={form.ie} onChange={(e) => set({ ie: e.target.value })} />
-        </Field>
+        {form.tipo === 'PJ' ? (
+          <Field label="Inscrição estadual"><input value={form.ie} onChange={(e) => set({ ie: e.target.value })} /></Field>
+        ) : (
+          <Field label="RG"><input value={form.rg} onChange={(e) => set({ rg: e.target.value })} /></Field>
+        )}
       </div>
 
-      {/* Contatos principais + financeiros */}
+      {/* Contato */}
       <div className="divider" />
-      <div className="bold soft" style={{ marginBottom: 10 }}>Contato e dados financeiros</div>
+      <div className="bold soft" style={{ marginBottom: 10 }}>Contato{isCliente ? ' e dados financeiros' : ''}</div>
       <div className="form-row">
-        <Field label="E-mail"><input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} /></Field>
-        <Field label="WhatsApp"><input value={form.whatsapp} onChange={(e) => set({ whatsapp: e.target.value })} placeholder="(11) 90000-0000" /></Field>
+        <Field label="Telefone fixo">
+          <div className="flex gap-8">
+            <input value={form.telefoneFixoDdd} onChange={(e) => set({ telefoneFixoDdd: e.target.value })} placeholder="DDD" maxLength={2} style={{ width: 64 }} />
+            <input value={form.telefoneFixoNum} onChange={(e) => set({ telefoneFixoNum: e.target.value })} placeholder="Número" style={{ flex: 1 }} />
+          </div>
+        </Field>
+        <Field label="Celular / WhatsApp">
+          <div className="flex gap-8">
+            <input value={form.celularDdd} onChange={(e) => set({ celularDdd: e.target.value })} placeholder="DDD" maxLength={2} style={{ width: 64 }} />
+            <input value={form.celularNum} onChange={(e) => set({ celularNum: e.target.value })} placeholder="Número" style={{ flex: 1 }} />
+          </div>
+        </Field>
       </div>
-      <div className="form-row-3">
-        <Field label="Telefone fixo (com DDD)"><input value={form.telefoneFixo} onChange={(e) => set({ telefoneFixo: e.target.value })} placeholder="(11) 3000-0000" /></Field>
-        <Field label="E-mail financeiro"><input type="email" value={form.emailFinanceiro} onChange={(e) => set({ emailFinanceiro: e.target.value })} /></Field>
-        <Field label="WhatsApp financeiro"><input value={form.whatsappFinanceiro} onChange={(e) => set({ whatsappFinanceiro: e.target.value })} /></Field>
-      </div>
-      <Field label="Site da empresa"><input value={form.site} onChange={(e) => set({ site: e.target.value })} placeholder="www.empresa.com.br" /></Field>
+      <Field label="Site"><input value={form.site} onChange={(e) => set({ site: e.target.value })} placeholder="www.empresa.com.br" /></Field>
+      {isCliente && (
+        <div className="form-row">
+          <Field label="E-mail financeiro"><input type="email" value={form.emailFinanceiro} onChange={(e) => set({ emailFinanceiro: e.target.value })} /></Field>
+          <Field label="WhatsApp financeiro"><input value={form.whatsappFinanceiro} onChange={(e) => set({ whatsappFinanceiro: e.target.value })} /></Field>
+        </div>
+      )}
 
       {/* Endereço */}
       <div className="divider" />
       <div className="bold soft" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={15} /> Endereço</div>
       <div className="form-row-3">
-        <Field label="CEP"><input value={form.endereco.cep} onChange={(e) => setEnd({ cep: e.target.value })} /></Field>
+        <Field label="CEP" hint="Clique em buscar para preencher o endereço">
+          <div className="flex gap-8">
+            <input value={form.endereco.cep} onChange={(e) => setEnd({ cep: e.target.value })} style={{ flex: 1 }} />
+            <Btn size="sm" icon={<Search size={14} />} onClick={onBuscarCep} disabled={buscandoCep}>{buscandoCep ? '...' : 'Buscar'}</Btn>
+          </div>
+        </Field>
         <Field label="Logradouro"><input value={form.endereco.logradouro} onChange={(e) => setEnd({ logradouro: e.target.value })} /></Field>
         <Field label="Número"><input value={form.endereco.numero} onChange={(e) => setEnd({ numero: e.target.value })} /></Field>
       </div>
@@ -111,6 +164,7 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
         <Field label="Cidade"><input value={form.endereco.cidade} onChange={(e) => setEnd({ cidade: e.target.value })} /></Field>
         <Field label="UF"><input maxLength={2} value={form.endereco.uf} onChange={(e) => setEnd({ uf: e.target.value.toUpperCase() })} /></Field>
       </div>
+      {msg && <div className="mut" style={{ fontSize: 12.5, color: 'var(--amber)' }}>{msg}</div>}
 
       {/* Contatos (até 3) */}
       <div className="divider" />
@@ -171,29 +225,19 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
             </Field>
           </div>
           <div className="form-row">
-            <Field label="Valor de instalação (R$)"><input type="number" step="0.01" value={form.valorInstalacao} onChange={(e) => set({ valorInstalacao: +e.target.value })} /></Field>
-            <Field label="Mensalidade total (calculada)">
-              <input value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(total)} disabled />
-            </Field>
+            <Field label="Valor de instalação por equipamento (R$)"><input type="number" step="0.01" value={form.valorInstalacao} onChange={(e) => set({ valorInstalacao: +e.target.value })} /></Field>
+            <Field label="Mensalidade total (calculada)"><input value={brl(totalMensal)} disabled /></Field>
           </div>
-        </>
-      ) : (
-        <>
-          {/* Condições do fornecedor */}
-          <div className="divider" />
-          <div className="bold soft" style={{ marginBottom: 10 }}>Condições de fornecimento</div>
           <div className="form-row">
-            <Field label="Categoria de fornecimento">
-              <select value={form.categoria} onChange={(e) => set({ categoria: e.target.value })}>
-                {['Equipamentos', 'Chips / Telecom', 'Insumos / Instalação', 'Serviços', 'Outros'].map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </Field>
-            <Field label="Prazo de pagamento (dias)">
-              <input type="number" step="1" min="0" value={form.prazoPagamento} onChange={(e) => set({ prazoPagamento: +e.target.value })} />
-            </Field>
+            <Field label="Valor total da instalação (calculado)" hint="Instalação × quantidade"><input value={brl(totalInstalacao)} disabled /></Field>
+            <div />
+          </div>
+          <div className="form-row">
+            <Field label="Data de ativação"><input type="date" value={form.dataAtivacao} onChange={(e) => set({ dataAtivacao: e.target.value })} /></Field>
+            <Field label="Data de cancelamento"><input type="date" value={form.dataCancelamento} onChange={(e) => set({ dataCancelamento: e.target.value })} /></Field>
           </div>
         </>
-      )}
+      ) : null}
 
       {/* Situação (ativo/inativo) */}
       <div className="divider" />

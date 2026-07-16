@@ -64,3 +64,14 @@ export const maskPhone = (v = '') => {
 }
 
 export const uid = (prefix = 'id') => `${prefix}_${Math.random().toString(36).slice(2, 9)}`
+
+// Formata telefone a partir de DDD + número separados. Ex.: fone('11','999998888') => '(11) 99999-8888'
+export const fone = (ddd, num) => {
+  const d = String(ddd || '').replace(/\D/g, '')
+  const n = String(num || '').replace(/\D/g, '')
+  if (!d && !n) return ''
+  const nn = n.length >= 9
+    ? n.replace(/(\d{5})(\d{0,4})/, '$1-$2').replace(/-$/, '')
+    : n.replace(/(\d{4})(\d{0,4})/, '$1-$2').replace(/-$/, '')
+  return d ? `(${d}) ${nn}` : nn
+}

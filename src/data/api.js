@@ -11,8 +11,10 @@ export const rowToApp = (row) => {
 }
 
 const DATE_FIELDS = {
-  clients: ['contratoInicio', 'criadoEm'],
+  clients: ['contratoInicio', 'criadoEm', 'dataAtivacao', 'dataCancelamento'],
   fornecedores: ['criadoEm'],
+  equipamentos: ['data'],
+  chips: ['data', 'dataCancelamento'],
   contatos: ['aniversario'],
   historico_vendas: ['data'],
   conversas: ['data'],

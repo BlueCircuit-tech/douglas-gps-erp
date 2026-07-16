@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Pencil, Cake, MapPin, Phone, Mail, Globe, User, Users2, FileText, Truck,
+  ArrowLeft, Pencil, Cake, MapPin, Phone, Globe, User, Users2, FileText, Truck,
 } from 'lucide-react'
 import { fornecedoresApi, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { fmtDate, maskDoc, maskPhone } from '../lib/format.js'
+import { fmtDate, maskDoc, maskPhone, fone } from '../lib/format.js'
 import {
   PageHead, Card, CardHead, Btn, Badge, Avatar, EmptyState, Modal, Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
@@ -77,7 +77,7 @@ export default function FornecedorDetalhe() {
               <Badge tone={forn.tipo === 'PJ' ? 'blue' : 'purple'}>{forn.tipo}</Badge>
             </div>
             <div className="mut" style={{ fontSize: 13, marginTop: 2 }}>
-              {forn.categoria || 'Sem categoria'} · Prazo de pagamento: {forn.prazoPagamento ? `${forn.prazoPagamento} dias` : '—'}
+              {forn.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'}
             </div>
           </div>
         </div>
@@ -99,10 +99,9 @@ export default function FornecedorDetalhe() {
                 <Row label={forn.tipo === 'PJ' ? 'Razão social' : 'Nome completo'}>{forn.razaoSocial || '—'}</Row>
                 <Row label={forn.tipo === 'PJ' ? 'Nome fantasia' : 'Apelido'}>{forn.nomeFantasia || '—'}</Row>
                 <Row label={forn.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>{maskDoc(forn.cpfCnpj)}</Row>
-                <Row label="Inscrição estadual">{forn.ie || '—'}</Row>
-                <Row label="WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(forn.whatsapp)}</span></Row>
-                <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(forn.telefoneFixo) || '—'}</span></Row>
-                <Row label="E-mail"><span className="flex gap-6"><Mail size={13} className="mut" />{forn.email || '—'}</span></Row>
+                <Row label={forn.tipo === 'PJ' ? 'Inscrição estadual' : 'RG'}>{(forn.tipo === 'PJ' ? forn.ie : forn.rg) || '—'}</Row>
+                <Row label="Celular / WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(forn.celularDdd, forn.celularNum) || '—'}</span></Row>
+                <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(forn.telefoneFixoDdd, forn.telefoneFixoNum) || '—'}</span></Row>
                 <Row label="Site"><span className="flex gap-6"><Globe size={13} className="mut" />{forn.site || '—'}</span></Row>
                 <Row label="Endereço"><span className="flex gap-6" style={{ textAlign: 'right' }}><MapPin size={13} className="mut" />{fmtEndereco(forn.endereco)}</span></Row>
               </div>
@@ -116,13 +115,9 @@ export default function FornecedorDetalhe() {
           </div>
           <div className="col gap-16">
             <Card>
-              <CardHead title="Financeiro e fornecimento" icon={<Truck size={18} />} />
+              <CardHead title="Situação" icon={<Truck size={18} />} />
               <div className="card-pad col gap-12">
-                <Row label="Categoria">{forn.categoria || '—'}</Row>
-                <Row label="Prazo de pagamento">{forn.prazoPagamento ? `${forn.prazoPagamento} dias` : '—'}</Row>
-                <Row label="E-mail financeiro">{forn.emailFinanceiro || '—'}</Row>
-                <Row label="WhatsApp financeiro">{maskPhone(forn.whatsappFinanceiro) || '—'}</Row>
-                <div className="divider" />
+                <Row label="Tipo">{forn.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'}</Row>
                 <Row label="Situação"><StatusBadge status={forn.ativo ? 'ativo' : 'inativo'} /></Row>
               </div>
             </Card>

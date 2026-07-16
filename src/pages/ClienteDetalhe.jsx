@@ -8,7 +8,7 @@ import {
 import { api, clientsApi, syncRecorrencia, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { BRL, fmtDate, fmtDateTime, maskDoc, maskPhone, uid } from '../lib/format.js'
+import { BRL, fmtDate, fmtDateTime, maskDoc, maskPhone, fone, uid } from '../lib/format.js'
 import {
   PageHead, Card, CardHead, Btn, Badge, Avatar, Stat, Field, EmptyState, Modal,
   Segmented, useToast, StatusBadge,
@@ -225,9 +225,8 @@ export default function ClienteDetalhe() {
                 <Row label={cliente.tipo === 'PJ' ? 'Nome fantasia' : 'Apelido'}>{cliente.nomeFantasia || '—'}</Row>
                 <Row label={cliente.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>{maskDoc(cliente.cpfCnpj)}</Row>
                 <Row label="Inscrição estadual">{cliente.ie || '—'}</Row>
-                <Row label="WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(cliente.whatsapp)}</span></Row>
-                <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{maskPhone(cliente.telefoneFixo) || '—'}</span></Row>
-                <Row label="E-mail"><span className="flex gap-6"><Mail size={13} className="mut" />{cliente.email || '—'}</span></Row>
+                <Row label="Celular / WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(cliente.celularDdd, cliente.celularNum) || '—'}</span></Row>
+                <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(cliente.telefoneFixoDdd, cliente.telefoneFixoNum) || '—'}</span></Row>
                 <Row label="Site"><span className="flex gap-6"><Globe size={13} className="mut" />{cliente.site || '—'}</span></Row>
                 <Row label="Endereço"><span className="flex gap-6" style={{ textAlign: 'right' }}><MapPin size={13} className="mut" />{fmtEndereco(cliente.endereco)}</span></Row>
                 <Row label="CEP">{cliente.endereco?.cep || '—'}</Row>
@@ -283,9 +282,12 @@ export default function ClienteDetalhe() {
                 <Row label="Valor por equipamento"><b className="mono">{BRL(cliente.valorMensal)}</b></Row>
                 <Row label="Quantidade de equipamentos"><b className="mono">{cliente.quantidadeEquipamentos ?? 0}</b></Row>
                 <Row label="Mensalidade total"><b className="mono">{BRL(mensalidade)}</b></Row>
-                <Row label="Instalação"><b className="mono">{BRL(cliente.valorInstalacao)}</b></Row>
+                <Row label="Instalação (por equip.)"><b className="mono">{BRL(cliente.valorInstalacao)}</b></Row>
+                <Row label="Instalação total"><b className="mono">{BRL((cliente.valorInstalacao || 0) * (cliente.quantidadeEquipamentos || 0))}</b></Row>
                 <div className="divider" />
                 <Row label="Prazo do contrato">{cliente.prazoMeses ? `${cliente.prazoMeses} meses` : '—'}</Row>
+                <Row label="Data de ativação">{fmtDate(cliente.dataAtivacao)}</Row>
+                <Row label="Data de cancelamento">{fmtDate(cliente.dataCancelamento)}</Row>
                 <Row label="Parcelas em aberto"><b className="mono">{parcelasFuturas.length}</b></Row>
                 <Row label="Vendedor responsável">{userName(cliente.vendedorId)}</Row>
                 <Row label="Situação"><StatusBadge status={cliente.ativo ? 'ativo' : (cliente.status === 'lead' ? 'lead' : 'inativo')} /></Row>
@@ -518,7 +520,7 @@ export default function ClienteDetalhe() {
       >
         <div className="flex gap-8" style={{ marginBottom: 10, alignItems: 'center' }}>
           <Phone size={15} className="mut" />
-          <span className="bold">{maskPhone(cliente.whatsapp) || 'Sem número'}</span>
+          <span className="bold">{fone(cliente.celularDdd, cliente.celularNum) || 'Sem número'}</span>
           <span className="mut">· {nome}</span>
         </div>
         <Field label="Mensagem" hint="A mensagem ficará registrada no histórico de comunicações.">
