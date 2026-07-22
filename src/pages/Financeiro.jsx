@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import {
   Plus, Wallet, Receipt, Coins, DollarSign, TrendingUp,
-  Check, Trash2, Layers, Calculator,
+  Check, Trash2, Layers, Calculator, CalendarClock,
 } from 'lucide-react'
 import { api, clientName, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
@@ -16,7 +16,6 @@ import {
 const CAT_RECEBER = [
   { value: 'mensalidade', label: 'Mensalidade' },
   { value: 'instalacao', label: 'Instalação' },
-  { value: 'monitoramento', label: 'Monitoramento' },
 ]
 const CAT_DESPESA = [
   { value: 'fornecedores', label: 'Fornecedores' },
@@ -32,7 +31,7 @@ const CAT_DESPESA = [
 const CAT_PAGAR = CAT_DESPESA
 
 const CAT_TONE = {
-  mensalidade: 'blue', instalacao: 'purple', monitoramento: 'green',
+  mensalidade: 'blue', instalacao: 'purple',
   fornecedores: 'amber', telecom: 'blue', estrutura: 'gray', pessoal: 'purple',
   logistica: 'green', insumos: 'amber', marketing: 'red', administrativo: 'gray',
 }
@@ -49,7 +48,7 @@ function StatusFin({ item }) {
   return <StatusBadge status={item.status} />
 }
 
-const emptyReceber = () => ({ clientId: '', descricao: '', categoria: 'mensalidade', valor: '', vencimento: todayISO() })
+const emptyReceber = () => ({ clientId: '', descricao: '', categoria: 'mensalidade', valor: '', vencimento: todayISO(), prazoMeses: '1' })
 const emptyPagar = () => ({ descricao: '', categoria: 'fornecedores', valor: '', vencimento: todayISO() })
 const emptyDespesa = () => ({ descricao: '', categoria: 'fornecedores', valor: '', data: todayISO() })
 
@@ -133,13 +132,37 @@ export default function Financeiro() {
     if (!formR.descricao.trim()) { toast('Informe a descrição', 'error'); return }
     const valor = +formR.valor
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
+    const prazo = Number(formR.prazoMeses) || 1
     try {
-      await api.contasReceber.insert({
-        id: uid('cr'), clientId: formR.clientId, descricao: formR.descricao.trim(),
-        categoria: formR.categoria, valor, vencimento: formR.vencimento, status: 'aberto',
-      })
-      logAudit(user.id, 'criar', 'conta a receber', `${formR.descricao.trim()} · ${BRL(valor)}`)
-      toast('Conta a receber adicionada')
+      if (prazo > 1) {
+        const valorParcela = +(valor / prazo).toFixed(2)
+        const diff = +(valor - valorParcela * prazo).toFixed(2)
+        const rows = []
+        for (let i = 0; i < prazo; i++) {
+          const d = new Date(formR.vencimento || todayISO())
+          d.setMonth(d.getMonth() + i)
+          const venc = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-10`
+          rows.push({
+            id: uid('cr'),
+            clientId: formR.clientId,
+            descricao: `${formR.descricao.trim()} — parcela ${i + 1}/${prazo}`,
+            categoria: formR.categoria,
+            valor: i === 0 ? +(valorParcela + diff).toFixed(2) : valorParcela,
+            vencimento: venc,
+            status: 'aberto',
+          })
+        }
+        await api.contasReceber.insertMany(rows)
+        logAudit(user.id, 'criar', 'conta a receber', `${formR.descricao.trim()} · ${prazo}x ${BRL(valorParcela)}`)
+        toast(`${prazo} parcelas geradas com sucesso`)
+      } else {
+        await api.contasReceber.insert({
+          id: uid('cr'), clientId: formR.clientId, descricao: formR.descricao.trim(),
+          categoria: formR.categoria, valor, vencimento: formR.vencimento, status: 'aberto',
+        })
+        logAudit(user.id, 'criar', 'conta a receber', `${formR.descricao.trim()} · ${BRL(valor)}`)
+        toast('Conta a receber adicionada')
+      }
       setOpenR(false)
       setFormR(emptyReceber())
       refetch()
@@ -368,6 +391,12 @@ export default function Financeiro() {
           </Field>
           <Field label="Vencimento">
             <input type="date" value={formR.vencimento} onChange={(e) => setR({ vencimento: e.target.value })} />
+          </Field>
+          <Field label="Prazo (meses)" hint="Gera N parcelas mensais">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="number" min="1" max="48" value={formR.prazoMeses} onChange={(e) => setR({ prazoMeses: e.target.value })} style={{ width: 80 }} />
+              <CalendarClock size={15} className="mut" />
+            </div>
           </Field>
         </div>
       </Modal>

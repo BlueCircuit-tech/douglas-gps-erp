@@ -17,7 +17,7 @@ import {
 
 const COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#06b6d4']
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-const CAT_LABEL = { mensalidade: 'Mensalidade', instalacao: 'Instalação', monitoramento: 'Monitoramento' }
+const CAT_LABEL = { mensalidade: 'Mensalidade', instalacao: 'Instalação' }
 const PERIODO_LABEL = { mes: 'no mês', trimestre: 'no trimestre', ano: 'no ano' }
 
 // Últimos N meses (chave YYYY-MM + rótulo curto), terminando no mês atual.

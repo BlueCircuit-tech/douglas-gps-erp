@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { UserPlus, Search, Users, Phone, Mail } from 'lucide-react'
+import { UserPlus, Search, Users, Phone, Mail, Upload, Download } from 'lucide-react'
 import { api, clientsApi, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, maskDoc, fone, uid } from '../lib/format.js'
+import { lerPlanilha, baixarModelo } from '../lib/planilha.js'
 import {
   PageHead, Card, Btn, Badge, Avatar, Modal, EmptyState, Segmented, useToast, StatusBadge,
 } from '../components/ui.jsx'
@@ -22,15 +23,18 @@ export default function Clientes() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(() => emptyPessoa('cliente'))
 
+  const isVendedor = user?.role === 'vendedor'
+
   const list = useMemo(() => {
     return (db.clients || []).filter((c) => {
+      if (isVendedor && c.vendedorId !== user.id) return false
       if (filter === 'ativos' && !c.ativo) return false
       if (filter === 'inativos' && c.ativo) return false
       if (filter === 'leads' && c.status !== 'lead') return false
       const txt = `${c.razaoSocial} ${c.nomeFantasia} ${c.cpfCnpj} ${c.email}`.toLowerCase()
       return txt.includes(q.toLowerCase())
     })
-  }, [db, q, filter])
+  }, [db, q, filter, isVendedor, user.id])
 
   const salvar = async () => {
     if (!form.razaoSocial.trim()) { toast('Informe o nome / razão social', 'error'); return }
@@ -70,9 +74,92 @@ export default function Clientes() {
   const ativos = (db.clients || []).filter((c) => c.ativo).length
   const leads = (db.clients || []).filter((c) => c.status === 'lead').length
 
+  const baixarModeloClientes = () => {
+    baixarModelo('modelo_clientes.xlsx', [
+      'razaoSocial', 'nomeFantasia', 'tipo', 'cpfCnpj', 'ie', 'rg',
+      'celularDdd', 'celularNum', 'emailFinanceiro', 'whatsappFinanceiroDdd', 'whatsappFinanceiroNum',
+      'endereco_cep', 'endereco_logradouro', 'endereco_numero', 'endereco_bairro', 'endereco_cidade', 'endereco_uf',
+      'site', 'observacoes', 'status',
+      'vendedorId', 'planoId', 'valorMensal', 'valorInstalacao', 'quantidadeEquipamentos', 'prazoMeses',
+      'dataAtivacao',
+    ], [
+      ['Douglas Rastreamento', 'Douglas', 'PJ', '12345678000190', '', '', '11', '999999999', 'fin@douglas.com', '11', '999999999', '01310-100', 'Av. Paulista', '100', 'Bela Vista', 'São Paulo', 'SP', 'www.douglas.com', 'Cliente ativo', 'ativo',
+        '', 'p_basico', 79.9, 150, 1, 12, new Date().toISOString().slice(0, 10)],
+    ])
+  }
+
+  const importarClientes = async (file) => {
+    try {
+      const rows = await lerPlanilha(file)
+      if (!rows?.length) { toast('Arquivo vazio', 'error'); return }
+      const results = []
+      for (const row of rows) {
+        const novo = {
+          id: uid('c'),
+          tipo: row.tipo || 'PJ',
+          status: row.status || 'ativo',
+          ativo: row.status === 'ativo' ? 1 : 0,
+          razaoSocial: row.razaoSocial || '',
+          nomeFantasia: row.nomeFantasia || '',
+          cpfCnpj: row.cpfCnpj || '',
+          ie: row.ie || '',
+          rg: row.rg || '',
+          celularDdd: row.celularDdd || '',
+          celularNum: row.celularNum || '',
+          emailFinanceiro: row.emailFinanceiro || '',
+          whatsappFinanceiroDdd: row.whatsappFinanceiroDdd || '',
+          whatsappFinanceiroNum: row.whatsappFinanceiroNum || '',
+          endereco: {
+            cep: row.endereco_cep || '',
+            logradouro: row.endereco_logradouro || '',
+            numero: row.endereco_numero || '',
+            bairro: row.endereco_bairro || '',
+            cidade: row.endereco_cidade || '',
+            uf: (row.endereco_uf || '').toUpperCase(),
+          },
+          site: row.site || '',
+          observacoes: row.observacoes || '',
+          vendedorId: row.vendedorId || (isVendedor ? user.id : ''),
+          planoId: row.planoId || 'p_basico',
+          valorMensal: Number(row.valorMensal) || 79.9,
+          valorInstalacao: Number(row.valorInstalacao) || 150,
+          quantidadeEquipamentos: Number(row.quantidadeEquipamentos) || 1,
+          prazoMeses: Number(row.prazoMeses) || 12,
+          dataAtivacao: row.dataAtivacao || new Date().toISOString().slice(0, 10),
+          criadoEm: new Date().toISOString().slice(0, 10),
+          historicoVendas: [],
+          conversas: [],
+          contatos: [],
+        }
+        if (novo.razaoSocial) results.push(novo)
+      }
+      if (!results.length) { toast('Nenhuma linha válida (razão social obrigatória)', 'error'); return }
+      setSaving(true)
+      await api.clients.insertMany(results)
+      logAudit(user.id, 'criar', 'clientes', `Importação em massa: ${results.length} cliente(s)`)
+      toast(`${results.length} cliente(s) importado(s)`)
+      refetch()
+    } catch (e) {
+      toast('Erro na importação: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const onImportar = (e) => {
+    const file = e.target.files?.[0]
+    if (file) importarClientes(file)
+    e.target.value = ''
+  }
+
   return (
     <>
       <PageHead title="Clientes" subtitle={`${ativos} ativos · ${leads} leads · cadastro completo com contatos e histórico`}>
+        <Btn variant="ghost" icon={<Download size={16} />} onClick={baixarModeloClientes}>Modelo</Btn>
+        <label className="btn btn-ghost gap-6" style={{ cursor: 'pointer' }}>
+          <Upload size={16} /> Importar
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={onImportar} hidden />
+        </label>
         <Btn variant="primary" icon={<UserPlus size={16} />} onClick={() => { setForm(emptyPessoa('cliente')); setOpen(true) }}>
           Cadastrar Cliente
         </Btn>

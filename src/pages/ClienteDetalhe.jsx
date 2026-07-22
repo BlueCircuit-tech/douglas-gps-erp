@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Pencil, Cake, MapPin, Phone, Mail, FileText, Download, Plus,
   MessageCircle, Smartphone, Wallet, User, ClipboardList, DollarSign, Wrench,
-  AlertTriangle, CheckCircle2, Users2, Globe, History, Boxes, TrendingUp, TrendingDown,
+  AlertTriangle, CheckCircle2, Users2, Globe, History, Boxes, TrendingUp, TrendingDown, Car,
 } from 'lucide-react'
 import { api, clientsApi, syncRecorrencia, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
@@ -53,7 +53,18 @@ export default function ClienteDetalhe() {
   const toast = useToast()
   const navigate = useNavigate()
 
+  const isVendedor = user?.role === 'vendedor'
   const cliente = (db.clients || []).find((c) => c.id === id)
+  if (isVendedor && cliente && cliente.vendedorId !== user.id) {
+    return (
+      <div className="container" style={{ padding: 40, textAlign: 'center' }}>
+        <AlertTriangle size={40} className="mut" style={{ marginBottom: 12 }} />
+        <div className="bold" style={{ fontSize: 16 }}>Acesso restrito</div>
+        <div className="mut">Você só pode visualizar seus próprios clientes.</div>
+        <Btn variant="primary" onClick={() => navigate('/clientes')} style={{ marginTop: 16 }}>Voltar para clientes</Btn>
+      </div>
+    )
+  }
   const userName = (uid2) => (db.users || []).find((u) => u.id === uid2)?.name || '—'
   const [tab, setTab] = useState('geral')
   const [saving, setSaving] = useState(false)
@@ -65,6 +76,8 @@ export default function ClienteDetalhe() {
   const [docForm, setDocForm] = useState({ tipo: 'Contrato', nome: '' })
   const [waOpen, setWaOpen] = useState(false)
   const [waMsg, setWaMsg] = useState('')
+  const [convOpen, setConvOpen] = useState(false)
+  const [convForm, setConvForm] = useState({ canal: 'whatsapp', descricao: '', data: new Date().toISOString().slice(0, 10) })
 
   // Coleções filtradas pelo cliente
   const docs = useMemo(
@@ -166,6 +179,24 @@ export default function ClienteDetalhe() {
     }
   }
 
+  const adicionarConversa = async () => {
+    if (!convForm.descricao.trim()) { toast('Descreva a conversa', 'error'); return }
+    if (!convForm.data) { toast('Informe a data', 'error'); return }
+    try {
+      await api.interacoes.insert({
+        id: uid('in'), clientId: cliente.id, canal: convForm.canal,
+        descricao: convForm.descricao.trim(), data: new Date(convForm.data).toISOString(),
+      })
+      logAudit(user.id, 'comunicar', 'cliente', `Conversa registrada (${CANAIS[convForm.canal]?.label || convForm.canal})`)
+      toast('Conversa registrada')
+      setConvOpen(false)
+      setConvForm({ canal: 'whatsapp', descricao: '', data: new Date().toISOString().slice(0, 10) })
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
   return (
     <>
       <PageHead
@@ -205,6 +236,7 @@ export default function ClienteDetalhe() {
           options={[
             { value: 'geral', label: 'Visão geral' },
             { value: 'contatos', label: `Contatos (${contatos.length})` },
+            { value: 'veiculos', label: `Veículos (${equipamentos.length})` },
             { value: 'historico', label: 'Histórico de vendas' },
             { value: 'documentos', label: 'Documentos' },
             { value: 'ordens', label: 'Ordens de Serviço' },
@@ -237,7 +269,7 @@ export default function ClienteDetalhe() {
               <CardHead title="Financeiro do cliente" icon={<Mail size={18} />} />
               <div className="card-pad col gap-12">
                 <Row label="E-mail financeiro">{cliente.emailFinanceiro || '—'}</Row>
-                <Row label="WhatsApp financeiro">{maskPhone(cliente.whatsappFinanceiro) || '—'}</Row>
+                <Row label="WhatsApp financeiro">{fone(cliente.whatsappFinanceiroDdd, cliente.whatsappFinanceiroNum) || '—'}</Row>
               </div>
             </Card>
 
@@ -316,7 +348,7 @@ export default function ClienteDetalhe() {
                         <Row label="CPF">{maskDoc(ct.cpf) || '—'}</Row>
                         <Row label="RG">{ct.rg || '—'}</Row>
                         <Row label="Aniversário"><span className="flex gap-6"><Cake size={13} className="mut" />{fmtDate(ct.aniversario)}</span></Row>
-                        <Row label="WhatsApp">{maskPhone(ct.whatsapp) || '—'}</Row>
+                        <Row label="WhatsApp">{fone(ct.whatsappDdd, ct.whatsapp) || maskPhone(ct.whatsapp) || '—'}</Row>
                         <Row label="E-mail">{ct.email || '—'}</Row>
                       </div>
                       {dias != null && (
@@ -331,6 +363,36 @@ export default function ClienteDetalhe() {
             ) : (
               <EmptyState icon={<Users2 size={40} />} title="Nenhum contato cadastrado" sub="Edite o cliente para adicionar até 3 contatos." />
             )}
+          </div>
+        </Card>
+      )}
+
+      {/* ---------------- VEÍCULOS ---------------- */}
+      {tab === 'veiculos' && (
+        <Card style={{ marginTop: 16 }}>
+          <CardHead title="Veículos vinculados" sub={`${equipamentos.length} veículo(s)`} icon={<Car size={18} />}>
+            <Btn size="sm" icon={<Boxes size={14} />} onClick={() => navigate('/estoque/equipamentos')}>Ver no estoque</Btn>
+          </CardHead>
+          <div className="table-wrap">
+            <table className="tbl">
+              <thead>
+                <tr><th>Modelo</th><th>Nº de série</th><th>Chip</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {equipamentos.map((e) => {
+                  const chip = (db.chips || []).find((c) => c.id === e.chipId)
+                  return (
+                    <tr key={e.id}>
+                      <td className="bold">{e.modelo}</td>
+                      <td className="mono">{e.serial}</td>
+                      <td className="mono">{chip ? `${chip.operadora} · ${maskPhone(chip.linha)}` : '—'}</td>
+                      <td><StatusBadge status={e.status} /></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {!equipamentos.length && <EmptyState icon={<Car size={36} />} title="Nenhum veículo vinculado" sub="Vincule equipamentos na tela de Estoque para vê-los aqui." />}
           </div>
         </Card>
       )}
@@ -458,6 +520,7 @@ export default function ClienteDetalhe() {
       {tab === 'comunicacoes' && (
         <Card style={{ marginTop: 16 }}>
           <CardHead title="Histórico de comunicações" sub={`${interacoes.length} interação(ões)`} icon={<MessageCircle size={18} />}>
+            <Btn variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => setConvOpen(true)}>Registrar conversa</Btn>
             <Btn variant="green" size="sm" icon={<MessageCircle size={15} />} onClick={() => setWaOpen(true)}>Enviar WhatsApp</Btn>
           </CardHead>
           <div className="card-pad">
@@ -478,7 +541,7 @@ export default function ClienteDetalhe() {
                 })}
               </div>
             ) : (
-              <EmptyState icon={<MessageCircle size={40} />} title="Nenhuma comunicação" sub="Envie um WhatsApp para iniciar o histórico." />
+              <EmptyState icon={<MessageCircle size={40} />} title="Nenhuma comunicação" sub="Registre uma conversa ou envie um WhatsApp." />
             )}
           </div>
         </Card>
@@ -510,6 +573,25 @@ export default function ClienteDetalhe() {
           <input value={docForm.nome} onChange={(e) => setDocForm((f) => ({ ...f, nome: e.target.value }))} placeholder="Ex: Contrato Anual PJ.pdf" />
         </Field>
         <div className="upload-zone"><FileText size={26} /><div style={{ marginTop: 8 }}>Arraste o arquivo ou toque para selecionar</div></div>
+      </Modal>
+
+      {/* ---------------- MODAL: Registrar conversa ---------------- */}
+      <Modal
+        open={convOpen} onClose={() => setConvOpen(false)}
+        title="Registrar conversa" icon={<MessageCircle size={20} color="var(--brand)" />}
+        footer={<><Btn onClick={() => setConvOpen(false)}>Cancelar</Btn><Btn variant="primary" icon={<MessageCircle size={15} />} onClick={adicionarConversa}>Salvar</Btn></>}
+      >
+        <Field label="Canal">
+          <select value={convForm.canal} onChange={(e) => setConvForm((f) => ({ ...f, canal: e.target.value }))}>
+            {Object.entries(CANAIS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Data">
+          <input type="date" value={convForm.data} onChange={(e) => setConvForm((f) => ({ ...f, data: e.target.value }))} />
+        </Field>
+        <Field label="Descrição" hint="Descreva o que foi conversado com o cliente">
+          <textarea rows={4} value={convForm.descricao} onChange={(e) => setConvForm((f) => ({ ...f, descricao: e.target.value }))} placeholder="Descreva a conversa..." />
+        </Field>
       </Modal>
 
       {/* ---------------- MODAL: Enviar WhatsApp ---------------- */}

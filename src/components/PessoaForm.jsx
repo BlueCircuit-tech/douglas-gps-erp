@@ -7,7 +7,7 @@ import { buscarCep, buscarCnpj } from '../lib/lookup.js'
 const PRAZOS = [12, 24, 36, 48]
 const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 
-export const novoContato = () => ({ id: uid('cti'), nome: '', cpf: '', rg: '', aniversario: '', whatsapp: '', email: '' })
+export const novoContato = () => ({ id: uid('cti'), nome: '', cpf: '', rg: '', aniversario: '', whatsappDdd: '', whatsapp: '', email: '' })
 
 export const emptyPessoa = (kind = 'cliente') => ({
   tipo: 'PJ', status: kind === 'cliente' ? 'lead' : 'ativo', ativo: kind !== 'cliente',
@@ -18,7 +18,7 @@ export const emptyPessoa = (kind = 'cliente') => ({
   observacoes: '',
   ...(kind === 'cliente'
     ? {
-        emailFinanceiro: '', whatsappFinanceiro: '',
+        emailFinanceiro: '', whatsappFinanceiroDdd: '', whatsappFinanceiroNum: '',
         stage: 'novo', planoId: 'p_basico', vendedorId: '',
         valorMensal: 79.9, valorInstalacao: 150, quantidadeEquipamentos: 1, prazoMeses: 12,
         dataAtivacao: '', dataCancelamento: '',
@@ -38,7 +38,7 @@ export const fromPessoa = (c, kind = 'cliente') => ({
   observacoes: c.observacoes || '',
   ...(kind === 'cliente'
     ? {
-        emailFinanceiro: c.emailFinanceiro || '', whatsappFinanceiro: c.whatsappFinanceiro || '',
+        emailFinanceiro: c.emailFinanceiro || '', whatsappFinanceiroDdd: c.whatsappFinanceiroDdd || '', whatsappFinanceiroNum: c.whatsappFinanceiroNum || '',
         planoId: c.planoId || '', vendedorId: c.vendedorId || '',
         valorMensal: c.valorMensal ?? 0, valorInstalacao: c.valorInstalacao ?? 0,
         quantidadeEquipamentos: c.quantidadeEquipamentos ?? 0, prazoMeses: c.prazoMeses ?? 12,
@@ -142,7 +142,12 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
       {isCliente && (
         <div className="form-row">
           <Field label="E-mail financeiro"><input type="email" value={form.emailFinanceiro} onChange={(e) => set({ emailFinanceiro: e.target.value })} /></Field>
-          <Field label="WhatsApp financeiro"><input value={form.whatsappFinanceiro} onChange={(e) => set({ whatsappFinanceiro: e.target.value })} /></Field>
+          <Field label="WhatsApp financeiro">
+            <div className="flex gap-8">
+              <input value={form.whatsappFinanceiroDdd} onChange={(e) => set({ whatsappFinanceiroDdd: e.target.value })} placeholder="DDD" maxLength={2} style={{ width: 64 }} />
+              <input value={form.whatsappFinanceiroNum} onChange={(e) => set({ whatsappFinanceiroNum: e.target.value })} placeholder="Número" style={{ flex: 1 }} />
+            </div>
+          </Field>
         </div>
       )}
 
@@ -186,7 +191,12 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
           </div>
           <div className="form-row-3">
             <Field label="Data de aniversário"><input type="date" value={ct.aniversario} onChange={(e) => patchContato(ct.id, { aniversario: e.target.value })} /></Field>
-            <Field label="WhatsApp"><input value={ct.whatsapp} onChange={(e) => patchContato(ct.id, { whatsapp: e.target.value })} /></Field>
+            <Field label="WhatsApp">
+              <div className="flex gap-8">
+                <input value={ct.whatsappDdd || ''} onChange={(e) => patchContato(ct.id, { whatsappDdd: e.target.value })} placeholder="DDD" maxLength={2} style={{ width: 64 }} />
+                <input value={ct.whatsapp} onChange={(e) => patchContato(ct.id, { whatsapp: e.target.value })} placeholder="Número" style={{ flex: 1 }} />
+              </div>
+            </Field>
             <Field label="E-mail"><input type="email" value={ct.email} onChange={(e) => patchContato(ct.id, { email: e.target.value })} /></Field>
           </div>
         </div>
