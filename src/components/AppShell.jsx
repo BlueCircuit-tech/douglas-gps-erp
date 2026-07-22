@@ -103,9 +103,9 @@ export default function AppShell({ children }) {
             <input placeholder="Buscar clientes, OS, boletos..." />
           </div>
           <div className="topbar-actions">
-            <a className="btn btn-sm" href={db.meta?.homolog} target="_blank" rel="noreferrer" title="Abrir homologação">
+            {/* <a className="btn btn-sm" href={db.meta?.homolog} target="_blank" rel="noreferrer" title="Abrir homologação">
               <ExternalLink size={15} /> Homologação
-            </a>
+            </a> */}
             <div style={{ position: 'relative' }}>
               <button className="btn btn-ghost" onClick={() => setMenuOpen((v) => !v)} style={{ gap: 8 }}>
                 <Avatar name={user?.name} sm />
