@@ -100,7 +100,7 @@ export default function Funil() {
     }
   }
 
-  const abrirConversas = (e, cli) 
+  const abrirConversas = (e, cli) => {
     e.stopPropagation()
     if (cli.stage !== 'fechado') { toast('Conversas disponíveis apenas após fechamento do negócio', 'error'); return }
     setConversaLead(cli.id); setNovaConversa('')
@@ -297,4 +297,5 @@ export default function Funil() {
       </Modal>
     </>
   )
+}
 
