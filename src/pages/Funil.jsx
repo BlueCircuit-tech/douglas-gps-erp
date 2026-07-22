@@ -11,7 +11,7 @@ import {
 import { FUNNEL } from '../data/seed.js'
 import { mensalidadeTotal } from '../lib/recorrencia.js'
 
-const emptyLead = () => ({ nome: '', whatsapp: '', valorMensal: 79.9, quantidadeEquipamentos: 1, socioId: '' })
+const emptyLead = () => ({ nome: '', whatsapp: '', telefoneFixo: '', email: '', periodoRetorno: '', valorMensal: '', quantidadeEquipamentos: '', socioId: '' })
 
 export default function Funil() {
   const { db, refetch } = useCollections(['clients', 'users'])
@@ -79,14 +79,14 @@ export default function Funil() {
       id: uid('c'),
       tipo: 'PF', stage: 'novo', status: 'lead', ativo: false,
       razaoSocial: form.nome.trim(), nomeFantasia: '',
-      cpfCnpj: '', ie: '', email: '', whatsapp: form.whatsapp,
+      cpfCnpj: '', ie: '', email: form.email, telefoneFixo: form.telefoneFixo, whatsapp: form.whatsapp,
       telefoneFixo: '', emailFinanceiro: '', whatsappFinanceiro: '', site: '',
       endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '' },
       contatos: [], historicoVendas: [], conversas: [],
       planoId: 'p_basico', socioId: form.vendedorId, vendedorId: '',
       valorMensal: Number(form.valorMensal) || 0, quantidadeEquipamentos: Number(form.quantidadeEquipamentos) || 0,
       prazoMeses: 12, valorInstalacao: 150,
-      observacoes: '', criadoEm: new Date().toISOString().slice(0, 10), contratoInicio: '',
+      observacoes: `Período de retorno: ${form.periodoRetorno || 'Não informado'}`, criadoEm: new Date().toISOString().slice(0, 10), contratoInicio: '',
     }
     try {
       await clientsApi.insert(novo)
@@ -100,7 +100,11 @@ export default function Funil() {
     }
   }
 
-  const abrirConversas = (e, cli) => { e.stopPropagation(); setConversaLead(cli.id); setNovaConversa('') }
+  const abrirConversas = (e, cli) {
+    e.stopPropagation()
+    if (cli.stage !== 'fechado') { toast('Conversas disponíveis apenas após fechamento do negócio', 'error'); return }
+    setConversaLead(cli.id); setNovaConversa('')
+  }
 
   const enviarConversa = async () => {
     const cli = (db.clients || []).find((c) => c.id === conversaLead)
@@ -189,9 +193,11 @@ export default function Funil() {
                           <div className="mut flex gap-6" style={{ fontSize: 12, alignItems: 'center' }}>
                             <Users size={13} /> {userName(c.socioId)}
                           </div>
-                          <button className="btn btn-ghost btn-sm" onClick={(e) => abrirConversas(e, c)} title="Histórico de conversas" style={{ padding: '4px 8px' }}>
-                            <MessageSquare size={14} /> {nConversas}
-                          </button>
+                          {c.stage === 'fechado' && (
+                            <button className="btn btn-ghost btn-sm" onClick={(e) => abrirConversas(e, c)} title="Histórico de conversas" style={{ padding: '4px 8px' }}>
+                              <MessageSquare size={14} /> {nConversas}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )
@@ -223,13 +229,24 @@ export default function Funil() {
           <Field label="WhatsApp">
             <input value={form.whatsapp} onChange={(e) => set({ whatsapp: e.target.value })} placeholder={maskPhone('11999990000')} />
           </Field>
-          <Field label="Quantidade de equipamentos">
+          <Field label="Telefone fixo">
+            <input value={form.telefoneFixo} onChange={(e) => set({ telefoneFixo: e.target.value })} placeholder={maskPhone('1133334444')} />
+          </Field>
+        </div>
+        <Field label="E-mail">
+          <input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} placeholder="email@empresa.com" />
+        </Field>
+        <div className="form-row">
+          <Field label="Valor mensal por equipamento (R$)" hint="Opcional">
+            <input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} />
+          </Field>
+          <Field label="Quantidade de equipamentos" hint="Opcional">
             <input type="number" step="1" min="0" value={form.quantidadeEquipamentos} onChange={(e) => set({ quantidadeEquipamentos: +e.target.value })} />
           </Field>
         </div>
         <div className="form-row">
-          <Field label="Valor mensal por equipamento (R$)">
-            <input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} />
+          <Field label="Período de retorno" hint="Ex.: quinzenal, mensal">
+            <input value={form.periodoRetorno} onChange={(e) => set({ periodoRetorno: e.target.value })} placeholder="Ex.: quinzenal" />
           </Field>
           <Field label="Sócio">
             <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>

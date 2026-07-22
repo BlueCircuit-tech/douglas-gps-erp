@@ -57,14 +57,15 @@ export default function Comissoes() {
   const [form, setForm] = useState(emptyForm)
 
   const isTecnico = tipo === 'tecnico'
+  const isAmb = tipo === 'ambos'
 
   const pessoasDoTipo = useMemo(
-    () => (db.users || []).filter((u) => u.role === roleByTipo(tipo)),
-    [db, tipo],
+    () => (db.users || []).filter((u) => isAmb || u.role === roleByTipo(tipo)),
+    [db, tipo, isAmb],
   )
   const doTipo = useMemo(
-    () => (db.comissoes || []).filter((c) => c.tipo === tipo),
-    [db, tipo],
+    () => (db.comissoes || []).filter((c) => isAmb || c.tipo === tipo),
+    [db, isAmb],
   )
   const lista = useMemo(() => {
     return doTipo
@@ -209,7 +210,7 @@ export default function Comissoes() {
           <Segmented
             value={tipo}
             onChange={(v) => { setTipo(v); setPessoaFilter('todas') }}
-            options={[{ value: 'vendedor', label: 'Vendedores' }, { value: 'tecnico', label: 'Técnicos' }]}
+            options={[{ value: 'vendedor', label: 'Vendedores' }, { value: 'tecnico', label: 'Técnicos' }, { value: 'ambos', label: 'Ambos' }]}
           />
           <div className="spacer" />
           <Field label="">
@@ -223,16 +224,24 @@ export default function Comissoes() {
         <div className="table-wrap">
           <table className="tbl">
             <thead>
-              {isTecnico ? (
+              {isAmb ? (
                 <tr>
-                  <th>Técnico</th><th>Cliente</th><th>Serviço</th><th>Placa</th><th>Nº equipamento</th><th>KM</th>
+                  <th>Tipo</th><th>Pessoa</th><th>Cliente</th><th>Serviço</th>
+                  <th className="right">Qtd. equip.</th><th className="right">Fixo (un.)</th><th className="right">Valor total</th>
+                  <th className="right">% recorr.</th><th className="right">Recorrente</th>
+                  <th>Placa</th><th>KM</th><th>Serviço</th><th className="right">Pedágio</th><th className="right">Extras</th>
+                  <th className="right">Total</th><th>Data</th><th>Status</th><th className="right">Ações</th>
+                </tr>
+              ) : isTecnico ? (
+                <tr>
+                  <th>Pessoa</th><th>Cliente</th><th>Serviço</th><th>Placa</th><th>Nº equipamento</th><th>KM</th>
                   <th className="right">Serviço</th><th className="right">KM (R$)</th><th className="right">Pedágio</th>
                   <th className="right">Extras</th><th className="right">Total</th>
                   <th>Data</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               ) : (
                 <tr>
-                  <th>Vendedor</th><th>Cliente</th><th className="right">Qtd. equip.</th><th className="right">Fixo (un.)</th>
+                  <th>Pessoa</th><th>Cliente</th><th className="right">Qtd. equip.</th><th className="right">Fixo (un.)</th>
                   <th className="right">Valor total</th><th className="right">% recorr.</th><th className="right">Recorrente</th>
                   <th className="right">Total</th><th>OBS</th>
                   <th>Data</th><th>Status</th><th className="right">Ações</th>
@@ -242,10 +251,29 @@ export default function Comissoes() {
             <tbody>
               {lista.map((c) => (
                 <tr key={c.id}>
-                  <td className="bold">{userName(c.pessoaId)}</td>
-                  <td>{clientName(c.clientId)}</td>
-                  {isTecnico ? (
+                  {isAmb ? (
                     <>
+                      <td><Badge tone={c.tipo === 'tecnico' ? 'purple' : 'blue'}>{c.tipo}</Badge></td>
+                      <td className="bold">{userName(c.pessoaId)}</td>
+                      <td>{clientName(c.clientId)}</td>
+                      <td>{c.tipo === 'tecnico' ? <><Badge tone="gray">{servicoLabel(c.tipoServico)}</Badge><br /><span className="mono mut">{c.equipamentoId ? equipSerial(c.equipamentoId) : '—'}</span></> : '—'}</td>
+                      <td className="right mono">{num(c.quantidadeEquipamentos || (c.tipo === 'vendedor' ? 1 : 0))}</td>
+                      <td className="right mono">{c.tipo === 'vendedor' ? BRL(c.valorFixo) : '—'}</td>
+                      <td className="right mono">{c.tipo === 'vendedor' ? BRL(totalFixo(c)) : '—'}</td>
+                      <td className="right mono">{c.tipo === 'vendedor' ? (c.percentual ? pct(c.percentual) : '—') : '—'}</td>
+                      <td className="right mono">{c.tipo === 'vendedor' ? <><span className="flex gap-6 nowrap" style={{ justifyContent: 'flex-end' }}>{c.valorRecorrente ? <Repeat size={12} className="mut" /> : null}{BRL(c.valorRecorrente)}</span></> : '—'}</td>
+                      <td className="mono">{c.placa || <span className="mut">—</span>}</td>
+                      <td>{c.km != null ? <><span className="mono">{num(c.km)} km</span>{c.kmManual && <span className="flex gap-6 nowrap" style={{ color: 'var(--amber)', fontSize: 12 }} title="KM informado manualmente"><AlertTriangle size={14} /></span>}</> : <span className="mut">—</span>}</td>
+                      <td className="right mono">{c.tipo === 'tecnico' ? BRL(c.valorServico) : '—'}</td>
+                      <td className="right mono">{c.tipo === 'tecnico' ? BRL((Number(c.km) || 0) * (Number(c.valorKm) || 0)) : '—'}</td>
+                      <td className="right mono">{c.tipo === 'tecnico' ? BRL(c.pedagio) : '—'}</td>
+                      <td className="right mono">{c.tipo === 'tecnico' ? BRL(c.extras) : '—'}</td>
+                      <td className="right mono bold">{BRL(valorComissao(c))}</td>
+                    </>
+                  ) : isTecnico ? (
+                    <>
+                      <td className="bold">{userName(c.pessoaId)}</td>
+                      <td>{clientName(c.clientId)}</td>
                       <td><Badge tone="gray">{servicoLabel(c.tipoServico)}</Badge></td>
                       <td className="mono">{c.placa || <span className="mut">—</span>}</td>
                       <td className="mono">{c.equipamentoId ? equipSerial(c.equipamentoId) : <span className="mut">—</span>}</td>
@@ -269,6 +297,8 @@ export default function Comissoes() {
                     </>
                   ) : (
                     <>
+                      <td className="bold">{userName(c.pessoaId)}</td>
+                      <td>{clientName(c.clientId)}</td>
                       <td className="right mono">{num(c.quantidadeEquipamentos || 1)}</td>
                       <td className="right mono">{BRL(c.valorFixo)}</td>
                       <td className="right mono">{BRL(totalFixo(c))}</td>
@@ -302,7 +332,7 @@ export default function Comissoes() {
           {!lista.length && (
             <EmptyState
               icon={<Coins size={40} />}
-              title={`Nenhuma comissão de ${isTecnico ? 'técnico' : 'vendedor'}`}
+              title={`Nenhuma comissão${isAmb ? '' : ` de ${isTecnico ? 'técnico' : 'vendedor'}`}`}
               sub="Adicione uma comissão ou ajuste o filtro por pessoa."
             />
           )}
@@ -334,7 +364,10 @@ export default function Comissoes() {
           <Field label="Cliente" required hint="Cliente que originou a comissão">
             <select value={form.clientId} onChange={(e) => set({ clientId: e.target.value })}>
               <option value="">Selecione</option>
-              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}</option>)}
+              {clientes.map((c) => {
+                const qtd = c.quantidadeEquipamentos || 0
+                return <option key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}{qtd ? ` (${qtd} equip.)` : ''}</option>
+              })}
             </select>
           </Field>
         </div>

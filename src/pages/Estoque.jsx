@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import {
   Smartphone, Package, Plus, CheckCircle2, Layers, Boxes, Search, Wrench,
-  Pencil, Link2, Link2Off, RotateCcw, Ban, XCircle, Upload, Download,
+  Pencil, Link2, Link2Off, RotateCcw, Ban, XCircle, Upload, Download, Trash2,
 } from 'lucide-react'
 import { api, clientName, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
@@ -15,8 +15,8 @@ import {
 
 const OPERADORAS = ['Vivo', 'Claro', 'TIM', 'Arqia']
 
-const emptyChip = () => ({ id: null, iccid: '', linha: '', operadora: 'Vivo', valor: 25, data: todayISO() })
-const emptyEquip = () => ({ id: null, modelo: '', serial: '', tipo: 'Rastreador', valor: 220, data: todayISO() })
+const emptyChip = () => ({ id: null, iccid: '', linha: '', operadora: 'Vivo', valor: 25, data: todayISO(), clientId: null })
+const emptyEquip = () => ({ id: null, modelo: '', serial: '', tipo: 'Rastreador', valor: 220, data: todayISO(), clientId: null })
 
 // Filtros de status por aba (Equipamentos usa Manutenção; Chips usa Cancelado).
 const EQUIP_FILTERS = [
@@ -60,6 +60,9 @@ export default function Estoque() {
 
   // Cancelamento de chip. { chip, dataCancelamento, protocolo }
   const [cancelForm, setCancelForm] = useState(null)
+
+  // Confirmação de exclusão. { kind: 'chip'|'equip', item }
+  const [delForm, setDelForm] = useState(null)
 
   // Vínculo chip ↔ equipamento. { kind: 'chip'|'equip', item }
   const [vinculo, setVinculo] = useState(null)
@@ -133,14 +136,14 @@ export default function Estoque() {
   }
 
   // ---------- Editar ----------
-  const editarChip = (c) => { setChipForm({ id: c.id, iccid: c.iccid, linha: c.linha, operadora: c.operadora, valor: c.valor, data: c.data || todayISO() }); setChipOpen(true) }
-  const editarEquip = (e) => { setEquipForm({ id: e.id, modelo: e.modelo, serial: e.serial, tipo: e.tipo, valor: e.valor, data: e.data || todayISO() }); setEquipOpen(true) }
+  const editarChip = (c) => { setChipForm({ id: c.id, iccid: c.iccid, linha: c.linha, operadora: c.operadora, valor: c.valor, data: c.data || todayISO(), clientId: c.clientId || '' }); setChipOpen(true) }
+  const editarEquip = (e) => { setEquipForm({ id: e.id, modelo: e.modelo, serial: e.serial, tipo: e.tipo, valor: e.valor, data: e.data || todayISO(), clientId: e.clientId || '' }); setEquipOpen(true) }
 
   const salvarChip = async () => {
     if (!chipForm.iccid.trim()) { toast('Informe o ICCID', 'error'); return }
     try {
       if (chipForm.id) {
-        await api.chips.update(chipForm.id, { iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, data: chipForm.data })
+        await api.chips.update(chipForm.id, { iccid: chipForm.iccid.trim(), linha: chipForm.linha.trim(), operadora: chipForm.operadora, valor: +chipForm.valor || 0, data: chipForm.data, clientId: chipForm.clientId || null })
         logAudit(user.id, 'editar', 'chip', `Chip ${chipForm.iccid.trim()} editado`)
         toast('Chip atualizado')
       } else {
@@ -161,7 +164,7 @@ export default function Estoque() {
     if (!equipForm.serial.trim()) { toast('Informe o nº de série', 'error'); return }
     try {
       if (equipForm.id) {
-        await api.equipamentos.update(equipForm.id, { modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, data: equipForm.data })
+        await api.equipamentos.update(equipForm.id, { modelo: equipForm.modelo.trim(), serial: equipForm.serial.trim(), tipo: equipForm.tipo.trim() || 'Rastreador', valor: +equipForm.valor || 0, data: equipForm.data, clientId: equipForm.clientId || null })
         logAudit(user.id, 'editar', 'equipamento', `Equipamento ${equipForm.serial.trim()} editado`)
         toast('Equipamento atualizado')
       } else {
@@ -257,6 +260,54 @@ export default function Estoque() {
       await api.equipamentos.update(equip.id, { chipId: null })
       logAudit(user.id, 'desvincular', 'estoque', `Equipamento ${equip.serial} desvinculado do chip`)
       toast('Chip desvinculado')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  // ---------- Exclusão ----------
+  const excluirChip = async (chip) => {
+    try {
+      if (chip.equipamentoId) await api.equipamentos.update(chip.equipamentoId, { chipId: null, clientId: null, status: 'disponivel' })
+      await api.chips.remove(chip.id)
+      logAudit(user.id, 'excluir', 'chip', `Chip ${chip.iccid} excluído`)
+      toast('Chip excluído')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  const excluirEquip = async (equip) => {
+    try {
+      if (equip.chipId) {
+        const chip = chipById(equip.chipId)
+        if (chip) await api.chips.update(chip.id, { equipamentoId: null, clientId: null, status: 'disponivel' })
+      }
+      await api.equipamentos.remove(equip.id)
+      logAudit(user.id, 'excluir', 'equipamento', `Equipamento ${equip.serial} excluído`)
+      toast('Equipamento excluído')
+      refetch()
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error')
+    }
+  }
+
+  // ---------- Vínculo com cliente (em_uso) ----------
+  const vincularCliente = async (item, clientId) => {
+    try {
+      const kind = item.iccid ? 'chip' : 'equip'
+      const serial = item.serial || item.iccid
+      if (kind === 'chip') {
+        await api.chips.update(item.id, { clientId, status: clientId ? 'em_uso' : 'disponivel' })
+        if (item.equipamentoId) await api.equipamentos.update(item.equipamentoId, { clientId, status: clientId ? 'em_uso' : 'disponivel' })
+      } else {
+        await api.equipamentos.update(item.id, { clientId, status: clientId ? 'em_uso' : 'disponivel' })
+        if (item.chipId) await api.chips.update(item.chipId, { clientId, status: clientId ? 'em_uso' : 'disponivel' })
+      }
+      logAudit(user.id, 'vincular_cliente', 'estoque', `${kind === 'chip' ? 'Chip' : 'Equipamento'} ${serial} vinculado ao cliente`)
+      toast(clientId ? 'Vinculado ao cliente' : 'Vínculo com cliente removido')
       refetch()
     } catch (e) {
       toast('Erro: ' + e.message, 'error')
@@ -361,6 +412,7 @@ export default function Estoque() {
                           {!cancelado && (
                             <Btn size="sm" variant="danger" icon={<Ban size={13} />} onClick={() => abrirCancelamento(c)}>Cancelar</Btn>
                           )}
+                          <Btn size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => setDelForm({ kind: 'chip', item: c })} title="Excluir" />
                         </div>
                       </td>
                     </tr>
@@ -402,6 +454,7 @@ export default function Estoque() {
                           <Btn size="sm" icon={e.status === 'manutencao' ? <RotateCcw size={13} /> : <Wrench size={13} />} onClick={() => alternarManutencao(e)}>
                             {e.status === 'manutencao' ? 'Disponível' : 'Manutenção'}
                           </Btn>
+                          <Btn size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => setDelForm({ kind: 'equip', item: e })} title="Excluir" />
                         </div>
                       </td>
                     </tr>
@@ -481,8 +534,11 @@ export default function Estoque() {
           <Field label="Valor (R$)">
             <input type="number" step="0.01" value={chipForm.valor} onChange={(e) => setChip({ valor: e.target.value })} />
           </Field>
-          <Field label="Data de cadastro">
-            <input type="date" value={chipForm.data} onChange={(e) => setChip({ data: e.target.value })} />
+          <Field label="Cliente">
+            <select value={chipForm.clientId || ''} onChange={(e) => setChip({ clientId: e.target.value })}>
+              <option value="">Sem vínculo (disponível)</option>
+              {(db.clients || []).filter((c) => c.status === 'ativo' || c.ativo).map((c) => <option key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}</option>)}
+            </select>
           </Field>
         </div>
         {!chipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O chip entra no estoque com status <b>Disponível</b>.</div>}
@@ -512,9 +568,17 @@ export default function Estoque() {
             <input type="number" step="0.01" value={equipForm.valor} onChange={(e) => setEquip({ valor: e.target.value })} />
           </Field>
         </div>
-        <Field label="Data de cadastro">
-          <input type="date" value={equipForm.data} onChange={(e) => setEquip({ data: e.target.value })} />
-        </Field>
+        <div className="form-row">
+          <Field label="Data de cadastro">
+            <input type="date" value={equipForm.data} onChange={(e) => setEquip({ data: e.target.value })} />
+          </Field>
+          <Field label="Cliente">
+            <select value={equipForm.clientId || ''} onChange={(e) => setEquip({ clientId: e.target.value })}>
+              <option value="">Sem vínculo (disponível)</option>
+              {(db.clients || []).filter((c) => c.status === 'ativo' || c.ativo).map((c) => <option key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}</option>)}
+            </select>
+          </Field>
+        </div>
         {!equipForm.id && <div className="mut" style={{ fontSize: 12.5, marginTop: 4 }}>O equipamento entra no estoque com status <b>Disponível</b>.</div>}
       </Modal>
 
@@ -539,6 +603,31 @@ export default function Estoque() {
                 <input value={cancelForm.protocolo} onChange={(e) => setCancelForm((f) => ({ ...f, protocolo: e.target.value }))} placeholder="Protocolo da operadora" />
               </Field>
             </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ---- Modal: confirmar exclusão ---- */}
+      <Modal
+        open={!!delForm}
+        onClose={() => setDelForm(null)}
+        title={delForm?.kind === 'chip' ? 'Excluir chip' : 'Excluir equipamento'}
+        icon={<Trash2 size={20} color="var(--red)" />}
+        footer={<><Btn onClick={() => setDelForm(null)}>Cancelar</Btn><Btn variant="danger" onClick={() => { if (delForm) { delForm.kind === 'chip' ? excluirChip(delForm.item) : excluirEquip(delForm.item); setDelForm(null) } }}>Excluir</Btn></>}
+      >
+        {delForm && (
+          <>
+            <div className="soft" style={{ marginBottom: 12 }}>
+              {delForm.kind === 'chip'
+                ? <>Excluir o chip <b className="mono">{delForm.item.iccid}</b> ({delForm.item.operadora})? {delForm.item.equipamentoId ? 'O vínculo com o equipamento também será removido.' : ''}</>
+                : <>Excluir o equipamento <b className="mono">{delForm.item.serial}</b> ({delForm.item.modelo})? {delForm.item.chipId ? 'O vínculo com o chip também será removido.' : ''}</>}
+            </div>
+            {delForm.kind === 'equip' && delForm.item.clientId && (
+              <div className="badge b-amber" style={{ marginBottom: 8 }}>Este equipamento está vinculado a um cliente e será liberado.</div>
+            )}
+            {delForm.kind === 'chip' && delForm.item.clientId && (
+              <div className="badge b-amber" style={{ marginBottom: 8 }}>Este chip está vinculado a um cliente e será liberado.</div>
+            )}
           </>
         )}
       </Modal>

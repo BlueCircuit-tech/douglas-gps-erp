@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import {
-  Plus, Wallet, Receipt, Coins, DollarSign, TrendingUp,
+  Plus, Wallet, Receipt, DollarSign, TrendingUp,
   Check, Trash2, Layers, Calculator, CalendarClock,
 } from 'lucide-react'
 import { api, clientName, logAudit } from '../data/api.js'
@@ -17,26 +17,13 @@ const CAT_RECEBER = [
   { value: 'mensalidade', label: 'Mensalidade' },
   { value: 'instalacao', label: 'Instalação' },
 ]
-const CAT_DESPESA = [
-  { value: 'fornecedores', label: 'Fornecedores' },
-  { value: 'telecom', label: 'Telecom' },
-  { value: 'estrutura', label: 'Estrutura' },
-  { value: 'pessoal', label: 'Pessoal' },
-  { value: 'logistica', label: 'Logística' },
-  { value: 'insumos', label: 'Insumos' },
-  { value: 'marketing', label: 'Marketing' },
-  { value: 'administrativo', label: 'Administrativo' },
-]
-// Contas a pagar reaproveita o mesmo leque de classificações das despesas.
-const CAT_PAGAR = CAT_DESPESA
-
 const CAT_TONE = {
   mensalidade: 'blue', instalacao: 'purple',
   fornecedores: 'amber', telecom: 'blue', estrutura: 'gray', pessoal: 'purple',
   logistica: 'green', insumos: 'amber', marketing: 'red', administrativo: 'gray',
 }
 const catLabel = (v) => {
-  const all = [...CAT_RECEBER, ...CAT_DESPESA]
+  const all = [...CAT_RECEBER]
   return all.find((c) => c.value === v)?.label || (v ? v[0].toUpperCase() + v.slice(1) : '—')
 }
 
@@ -49,11 +36,10 @@ function StatusFin({ item }) {
 }
 
 const emptyReceber = () => ({ clientId: '', descricao: '', categoria: 'mensalidade', valor: '', vencimento: todayISO(), prazoMeses: '1' })
-const emptyPagar = () => ({ descricao: '', categoria: 'fornecedores', valor: '', vencimento: todayISO() })
-const emptyDespesa = () => ({ descricao: '', categoria: 'fornecedores', valor: '', data: todayISO() })
+const emptyPagar = () => ({ descricao: '', fornecedorId: '', valor: '', vencimento: todayISO() })
 
 export default function Financeiro() {
-  const { db, refetch } = useCollections(['contasReceber', 'contasPagar', 'despesas', 'clients'])
+  const { db, refetch } = useCollections(['contasReceber', 'contasPagar', 'fornecedores', 'clients'])
   const { user } = useAuth()
   const toast = useToast()
 
@@ -62,14 +48,11 @@ export default function Financeiro() {
 
   const [openR, setOpenR] = useState(false)
   const [openP, setOpenP] = useState(false)
-  const [openD, setOpenD] = useState(false)
   const [formR, setFormR] = useState(emptyReceber)
   const [formP, setFormP] = useState(emptyPagar)
-  const [formD, setFormD] = useState(emptyDespesa)
 
   const setR = (patch) => setFormR((f) => ({ ...f, ...patch }))
   const setP = (patch) => setFormP((f) => ({ ...f, ...patch }))
-  const setD = (patch) => setFormD((f) => ({ ...f, ...patch }))
 
   // ---------- KPIs ----------
   const k = useMemo(() => {
@@ -95,15 +78,17 @@ export default function Financeiro() {
   }
   const listReceber = useMemo(() => aplicaStatus(db.contasReceber || []), [db, fStatus])
   const listPagar = useMemo(() => aplicaStatus(db.contasPagar || []), [db, fStatus])
-  const despesas = db.despesas || []
 
-  // Total de despesas por categoria (Tarefa 38)
-  const despesasPorCat = useMemo(() => {
+  // Totais por categoria nas contas a receber
+  const totaisReceberCat = useMemo(() => {
     const map = {}
-    despesas.forEach((d) => { map[d.categoria] = (map[d.categoria] || 0) + (d.valor || 0) })
+    ;(db.contasReceber || []).forEach((c) => {
+      const cat = c.categoria || 'outros'
+      map[cat] = (map[cat] || 0) + (c.valor || 0)
+    })
     return Object.entries(map).sort((a, b) => b[1] - a[1])
-  }, [despesas])
-  const totalDespesas = despesas.reduce((s, d) => s + (d.valor || 0), 0)
+  }, [db.contasReceber])
+  const totalReceberGeral = useMemo(() => (db.contasReceber || []).reduce((s, c) => s + (c.valor || 0), 0), [db.contasReceber])
 
   // ---------- Ações ----------
   const marcarPago = async (coll, item) => {
@@ -172,12 +157,13 @@ export default function Financeiro() {
   }
 
   const salvarPagar = async () => {
+    if (!formP.fornecedorId) { toast('Informe o fornecedor', 'error'); return }
     if (!formP.descricao.trim()) { toast('Informe a descrição', 'error'); return }
     const valor = +formP.valor
     if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
     try {
       await api.contasPagar.insert({
-        id: uid('cp'), descricao: formP.descricao.trim(), categoria: formP.categoria,
+        id: uid('cp'), descricao: formP.descricao.trim(), fornecedorId: formP.fornecedorId,
         valor, vencimento: formP.vencimento, status: 'aberto',
       })
       logAudit(user.id, 'criar', 'conta a pagar', `${formP.descricao.trim()} · ${BRL(valor)}`)
@@ -190,19 +176,11 @@ export default function Financeiro() {
     }
   }
 
-  const salvarDespesa = async () => {
-    if (!formD.descricao.trim()) { toast('Informe a descrição', 'error'); return }
-    const valor = +formD.valor
-    if (!valor || valor <= 0) { toast('Informe um valor válido', 'error'); return }
+  const excluirPagar = async (item) => {
     try {
-      await api.despesas.insert({
-        id: uid('de'), descricao: formD.descricao.trim(), categoria: formD.categoria,
-        valor, data: formD.data,
-      })
-      logAudit(user.id, 'criar', 'despesa', `${formD.descricao.trim()} · ${catLabel(formD.categoria)} · ${BRL(valor)}`)
-      toast('Despesa cadastrada')
-      setOpenD(false)
-      setFormD(emptyDespesa())
+      await api.contasPagar.remove(item.id)
+      logAudit(user.id, 'excluir', 'conta a pagar', item.descricao)
+      toast('Lançamento removido')
       refetch()
     } catch (e) {
       toast('Erro: ' + e.message, 'error')
@@ -218,11 +196,10 @@ export default function Financeiro() {
 
   return (
     <>
-      <PageHead title="Financeiro" subtitle="Contas a receber, contas a pagar e despesas">
+      <PageHead title="Financeiro" subtitle="Contas a receber, contas a pagar e resumo por categoria">
         <Segmented value={tab} onChange={setTab} options={[
           { value: 'receber', label: 'Contas a Receber' },
           { value: 'pagar', label: 'Contas a Pagar' },
-          { value: 'despesas', label: 'Despesas' },
         ]} />
       </PageHead>
 
@@ -236,7 +213,8 @@ export default function Financeiro() {
 
       {/* CONTAS A RECEBER */}
       {tab === 'receber' && (
-        <Card style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gap: 12, marginTop: 16 }}>
+        <Card>
           <CardHead title="Contas a Receber" sub={`${listReceber.length} lançamento(s)`} icon={<Wallet size={18} />}>
             <Segmented value={fStatus} onChange={setFStatus} options={statusOptions} />
             <Btn variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => { setFormR(emptyReceber()); setOpenR(true) }}>
@@ -273,6 +251,23 @@ export default function Financeiro() {
             {!listReceber.length && <EmptyState icon={<Wallet size={40} />} title="Nenhuma conta a receber" sub="Ajuste o filtro ou adicione um lançamento." />}
           </div>
         </Card>
+        <Card>
+          <CardHead title="Resumo por categoria" sub="Total classificado" icon={<Layers size={18} />} />
+          <div style={{ padding: '6px 0' }}>
+            {totaisReceberCat.map(([cat, total]) => (
+              <div key={cat} className="between" style={{ padding: '11px 18px', borderBottom: '1px solid var(--border)' }}>
+                <Badge tone={CAT_TONE[cat] || 'gray'}>{catLabel(cat)}</Badge>
+                <span className="mono bold">{BRL(total)}</span>
+              </div>
+            ))}
+            {!totaisReceberCat.length && <div className="mut" style={{ padding: '18px' }}>Sem lançamentos.</div>}
+            <div className="between" style={{ padding: '14px 18px' }}>
+              <span className="bold flex gap-6"><Calculator size={15} /> Total geral</span>
+              <span className="mono bold" style={{ fontSize: 15 }}>{BRL(totalReceberGeral)}</span>
+            </div>
+          </div>
+        </Card>
+        </div>
       )}
 
       {/* CONTAS A PAGAR */}
@@ -288,26 +283,29 @@ export default function Financeiro() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Descrição</th><th>Categoria</th>
+                  <th>Descrição</th><th>Fornecedor</th>
                   <th className="right">Valor</th><th>Vencimento</th><th>Status</th><th className="right">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {listPagar.map((c) => (
-                  <tr key={c.id}>
-                    <td className="bold">{c.descricao}</td>
-                    <td><Badge tone={CAT_TONE[c.categoria] || 'gray'}>{catLabel(c.categoria)}</Badge></td>
-                    <td className="right mono bold">{BRL(c.valor)}</td>
-                    <td className={isVencido(c) ? 'bold' : ''} style={isVencido(c) ? { color: 'var(--red)' } : undefined}>{fmtDate(c.vencimento)}</td>
-                    <td><StatusFin item={c} /></td>
-                    <td className="right nowrap">
-                      {c.status !== 'pago' && (
-                        <Btn variant="green" size="sm" icon={<Check size={14} />} onClick={() => marcarPago('contasPagar', c)}>Pago</Btn>
-                      )}
-                      <Btn variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={() => excluir('contasPagar', c, 'conta a pagar')} aria-label="Excluir" />
-                    </td>
-                  </tr>
-                ))}
+                {listPagar.map((c) => {
+                  const forn = (db.fornecedores || []).find((f) => f.id === c.fornecedorId)
+                  return (
+                    <tr key={c.id}>
+                      <td className="bold">{c.descricao}</td>
+                      <td>{forn?.nomeFantasia || forn?.razaoSocial || '—'}</td>
+                      <td className="right mono bold">{BRL(c.valor)}</td>
+                      <td className={isVencido(c) ? 'bold' : ''} style={isVencido(c) ? { color: 'var(--red)' } : undefined}>{fmtDate(c.vencimento)}</td>
+                      <td><StatusFin item={c} /></td>
+                      <td className="right nowrap">
+                        {c.status !== 'pago' && (
+                          <Btn variant="green" size="sm" icon={<Check size={14} />} onClick={() => marcarPago('contasPagar', c)}>Pago</Btn>
+                        )}
+                        <Btn variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={() => excluirPagar(c)} aria-label="Excluir" />
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             {!listPagar.length && <EmptyState icon={<Receipt size={40} />} title="Nenhuma conta a pagar" sub="Ajuste o filtro ou adicione um lançamento." />}
@@ -315,58 +313,6 @@ export default function Financeiro() {
         </Card>
       )}
 
-      {/* DESPESAS */}
-      {tab === 'despesas' && (
-        <div className="grid" style={{ gridTemplateColumns: '1.7fr 1fr', marginTop: 16 }}>
-          <Card>
-            <CardHead title="Despesas" sub={`${despesas.length} lançamento(s)`} icon={<Coins size={18} />}>
-              <Btn variant="primary" size="sm" icon={<Plus size={15} />} onClick={() => { setFormD(emptyDespesa()); setOpenD(true) }}>
-                Adicionar
-              </Btn>
-            </CardHead>
-            <div className="table-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Descrição</th><th>Categoria</th><th className="right">Valor</th><th>Data</th><th className="right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {despesas.map((d) => (
-                    <tr key={d.id}>
-                      <td className="bold">{d.descricao}</td>
-                      <td><Badge tone={CAT_TONE[d.categoria] || 'gray'}>{catLabel(d.categoria)}</Badge></td>
-                      <td className="right mono bold">{BRL(d.valor)}</td>
-                      <td>{fmtDate(d.data)}</td>
-                      <td className="right nowrap">
-                        <Btn variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={() => excluir('despesas', d, 'despesa')} aria-label="Excluir" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!despesas.length && <EmptyState icon={<Coins size={40} />} title="Nenhuma despesa cadastrada" sub="Cadastre e classifique as despesas da operação." />}
-            </div>
-          </Card>
-
-          <Card>
-            <CardHead title="Resumo por categoria" sub="Total classificado" icon={<Layers size={18} />} />
-            <div style={{ padding: '6px 0' }}>
-              {despesasPorCat.map(([cat, total]) => (
-                <div key={cat} className="between" style={{ padding: '11px 18px', borderBottom: '1px solid var(--border)' }}>
-                  <Badge tone={CAT_TONE[cat] || 'gray'}>{catLabel(cat)}</Badge>
-                  <span className="mono bold">{BRL(total)}</span>
-                </div>
-              ))}
-              {!despesasPorCat.length && <div className="mut" style={{ padding: '18px' }}>Sem despesas para resumir.</div>}
-              <div className="between" style={{ padding: '14px 18px' }}>
-                <span className="bold flex gap-6"><Calculator size={15} /> Total geral</span>
-                <span className="mono bold" style={{ fontSize: 15 }}>{BRL(totalDespesas)}</span>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
 
       {/* Modal: Adicionar conta a receber */}
       <Modal open={openR} onClose={() => setOpenR(false)} title="Adicionar conta a receber" icon={<Wallet size={20} color="var(--brand)" />}
@@ -407,12 +353,13 @@ export default function Financeiro() {
         <Field label="Descrição" required>
           <input value={formP.descricao} onChange={(e) => setP({ descricao: e.target.value })} placeholder="Ex.: Aluguel do escritório" />
         </Field>
+        <Field label="Fornecedor">
+          <select value={formP.fornecedorId} onChange={(e) => setP({ fornecedorId: e.target.value })}>
+            <option value="">Selecione o fornecedor</option>
+            {(db.fornecedores || []).map((f) => <option key={f.id} value={f.id}>{f.nomeFantasia || f.razaoSocial}</option>)}
+          </select>
+        </Field>
         <div className="form-row-3">
-          <Field label="Categoria">
-            <select value={formP.categoria} onChange={(e) => setP({ categoria: e.target.value })}>
-              {CAT_PAGAR.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </Field>
           <Field label="Valor (R$)" required>
             <input type="number" step="0.01" min="0" value={formP.valor} onChange={(e) => setP({ valor: e.target.value })} />
           </Field>
@@ -422,26 +369,6 @@ export default function Financeiro() {
         </div>
       </Modal>
 
-      {/* Modal: Adicionar despesa */}
-      <Modal open={openD} onClose={() => setOpenD(false)} title="Cadastrar despesa" icon={<Coins size={20} color="var(--brand)" />}
-        footer={<><Btn onClick={() => setOpenD(false)}>Cancelar</Btn><Btn variant="primary" onClick={salvarDespesa}>Salvar</Btn></>}>
-        <Field label="Descrição" required>
-          <input value={formD.descricao} onChange={(e) => setD({ descricao: e.target.value })} placeholder="Ex.: Combustível - frota técnica" />
-        </Field>
-        <div className="form-row-3">
-          <Field label="Categoria" hint="Classificação contábil (Tarefa 38)">
-            <select value={formD.categoria} onChange={(e) => setD({ categoria: e.target.value })}>
-              {CAT_DESPESA.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Valor (R$)" required>
-            <input type="number" step="0.01" min="0" value={formD.valor} onChange={(e) => setD({ valor: e.target.value })} />
-          </Field>
-          <Field label="Data">
-            <input type="date" value={formD.data} onChange={(e) => setD({ data: e.target.value })} />
-          </Field>
-        </div>
-      </Modal>
     </>
   )
 }

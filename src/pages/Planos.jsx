@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import {
-  Layers, Plus, Trash2, Check, Coins, DollarSign, Wrench, ShieldCheck, Users,
+  Layers, Plus, Trash2, Check, Coins, DollarSign, Wrench, Users,
 } from 'lucide-react'
 import { api, logAudit } from '../data/api.js'
 import { useCollections } from '../hooks/useSupabase.js'
@@ -12,7 +12,7 @@ import {
 
 const emptyForm = () => ({
   nome: '', descricao: '',
-  valorMensal: 0, valorInstalacao: 0, valorMonitoramento: 0,
+  valorMensal: 0, valorInstalacao: 0,
 })
 
 // ------- Card editável de um plano (estado local por plano) -------
@@ -21,13 +21,11 @@ function PlanoCard({ plano, onLog, onSaved }) {
   const [vals, setVals] = useState({
     valorMensal: plano.valorMensal ?? 0,
     valorInstalacao: plano.valorInstalacao ?? 0,
-    valorMonitoramento: plano.valorMonitoramento ?? 0,
   })
 
   const dirty =
     Number(vals.valorMensal) !== Number(plano.valorMensal ?? 0) ||
-    Number(vals.valorInstalacao) !== Number(plano.valorInstalacao ?? 0) ||
-    Number(vals.valorMonitoramento) !== Number(plano.valorMonitoramento ?? 0)
+    Number(vals.valorInstalacao) !== Number(plano.valorInstalacao ?? 0)
 
   const set = (patch) => setVals((v) => ({ ...v, ...patch }))
 
@@ -35,7 +33,6 @@ function PlanoCard({ plano, onLog, onSaved }) {
     const partial = {
       valorMensal: +vals.valorMensal || 0,
       valorInstalacao: +vals.valorInstalacao || 0,
-      valorMonitoramento: +vals.valorMonitoramento || 0,
     }
     try {
       await api.planos.update(plano.id, partial)
@@ -50,7 +47,6 @@ function PlanoCard({ plano, onLog, onSaved }) {
   const restaurar = () => set({
     valorMensal: plano.valorMensal ?? 0,
     valorInstalacao: plano.valorInstalacao ?? 0,
-    valorMonitoramento: plano.valorMonitoramento ?? 0,
   })
 
   const excluir = async () => {
@@ -65,7 +61,7 @@ function PlanoCard({ plano, onLog, onSaved }) {
     }
   }
 
-  const total = (+vals.valorMensal || 0) + (+vals.valorMonitoramento || 0)
+  const total = (+vals.valorMensal || 0) + (+vals.valorInstalacao || 0)
 
   return (
     <Card pad>
@@ -98,13 +94,6 @@ function PlanoCard({ plano, onLog, onSaved }) {
             onChange={(e) => set({ valorInstalacao: e.target.value })}
           />
         </Field>
-        <Field label="Valor monitoramento" hint={`Atual: ${BRL(plano.valorMonitoramento)}`}>
-          <input
-            type="number" step="0.01" min="0"
-            value={vals.valorMonitoramento}
-            onChange={(e) => set({ valorMonitoramento: e.target.value })}
-          />
-        </Field>
       </div>
 
       <div className="divider" />
@@ -113,7 +102,6 @@ function PlanoCard({ plano, onLog, onSaved }) {
         <div className="flex gap-16 wrap mut" style={{ fontSize: 12.5 }}>
           <span className="flex gap-6"><DollarSign size={14} /> Rastreamento <b className="mono soft">{BRL(vals.valorMensal)}</b>/mês</span>
           <span className="flex gap-6"><Wrench size={14} /> Instalação <b className="mono soft">{BRL(vals.valorInstalacao)}</b></span>
-          <span className="flex gap-6"><ShieldCheck size={14} /> Monitoramento <b className="mono soft">{BRL(vals.valorMonitoramento)}</b>/mês</span>
         </div>
         <div className="right">
           <div className="mut" style={{ fontSize: 11 }}>Recorrência mensal</div>
@@ -150,9 +138,8 @@ export default function Planos() {
   const kpis = useMemo(() => {
     const n = planos.length
     const mediaMensal = n ? planos.reduce((s, p) => s + (+p.valorMensal || 0), 0) / n : 0
-    const comMonit = planos.filter((p) => (+p.valorMonitoramento || 0) > 0).length
     const assinantes = (db.clients || []).filter((c) => c.status === 'ativo').length
-    return { n, mediaMensal, comMonit, assinantes }
+    return { n, mediaMensal, assinantes }
   }, [planos, db.clients])
 
   const salvar = async () => {
@@ -162,7 +149,6 @@ export default function Planos() {
       descricao: form.descricao.trim(),
       valorMensal: +form.valorMensal || 0,
       valorInstalacao: +form.valorInstalacao || 0,
-      valorMonitoramento: +form.valorMonitoramento || 0,
     }
     try {
       await api.planos.insert(novo)
@@ -180,7 +166,7 @@ export default function Planos() {
     <>
       <PageHead
         title="Planos de mensalidade"
-        subtitle="Configure os valores de rastreamento, instalação e monitoramento de cada plano"
+        subtitle="Configure os valores de rastreamento e instalação de cada plano"
       >
         <Btn variant="primary" icon={<Plus size={16} />} onClick={() => { setForm(emptyForm()); setOpen(true) }}>
           Novo plano
@@ -190,7 +176,7 @@ export default function Planos() {
       <div className="grid grid-4">
         <Stat icon={<Layers size={18} />} label="Planos cadastrados" value={kpis.n} tone="blue" />
         <Stat icon={<Coins size={18} />} label="Ticket médio mensal" value={BRL(kpis.mediaMensal)} tone="green" />
-        <Stat icon={<ShieldCheck size={18} />} label="Com monitoramento" value={kpis.comMonit} tone="purple" />
+        <Stat icon={<DollarSign size={18} />} label="Ticket médio instalação" value={planos.length ? BRL(planos.reduce((s, p) => s + (+p.valorInstalacao || 0), 0) / planos.length) : 'R$ 0,00'} tone="purple" />
         <Stat icon={<Users size={18} />} label="Clientes ativos" value={kpis.assinantes} tone="amber" />
       </div>
 
@@ -236,9 +222,6 @@ export default function Planos() {
           </Field>
           <Field label="Valor instalação">
             <input type="number" step="0.01" min="0" value={form.valorInstalacao} onChange={(e) => set({ valorInstalacao: e.target.value })} />
-          </Field>
-          <Field label="Valor monitoramento">
-            <input type="number" step="0.01" min="0" value={form.valorMonitoramento} onChange={(e) => set({ valorMonitoramento: e.target.value })} />
           </Field>
         </div>
       </Modal>
