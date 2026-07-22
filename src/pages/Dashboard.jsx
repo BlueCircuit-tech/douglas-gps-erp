@@ -11,7 +11,7 @@ import {
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDateTime, isOverdue, daysUntil } from '../lib/format.js'
-import { PageHead, Card, CardHead, Stat, Badge, Avatar, Segmented } from '../components/ui.jsx'
+import { PageHead, Card, CardHead, Stat, Badge, Avatar } from '../components/ui.jsx'
 import { ROLES } from '../data/seed.js'
 import { mensalidadeTotal } from '../lib/recorrencia.js'
 
@@ -21,39 +21,54 @@ export default function Dashboard() {
   const { db } = useCollections(['contasReceber', 'contasPagar', 'clients', 'ordens', 'boletos', 'planos', 'auditLogs', 'users'])
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [periodo, setPeriodo] = useState('mes') // 'mes' | 'todos'
+  
+  const [dataInicial, setDataInicial] = useState(() => {
+    const hoje = new Date()
+    return new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().split('T')[0]
+  })
+  const [dataFinal, setDataFinal] = useState(() => {
+    const hoje = new Date()
+    return new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().split('T')[0]
+  })
 
   const k = useMemo(() => {
     const cr = (db.contasReceber || []).filter((c) => c.status !== 'pago')
     const cp = (db.contasPagar || []).filter((c) => c.status !== 'pago')
-    const thisMonth = new Date().toISOString().slice(0, 7)
-    const inMonth = (iso) => (iso || '').slice(0, 7) === thisMonth
+    
+    // Filtro para verificar se a data está dentro do período selecionado
+    const inRange = (iso) => {
+      if (!iso) return false;
+      const dateStr = iso.slice(0, 10); // Pega apenas o YYYY-MM-DD
+      return dateStr >= dataInicial && dateStr <= dataFinal;
+    }
 
     const receberAtraso = cr.filter((c) => isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
-    const receberAbertoMes = cr.filter((c) => !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const receberAbertoPeriodo = cr.filter((c) => !isOverdue(c.vencimento) && inRange(c.vencimento)).reduce((s, c) => s + c.valor, 0)
     const pagarAtraso = cp.filter((c) => isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
-    const pagarAbertoMes = cp.filter((c) => !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const pagarAbertoPeriodo = cp.filter((c) => !isOverdue(c.vencimento) && inRange(c.vencimento)).reduce((s, c) => s + c.valor, 0)
 
-    const receitaMes = (db.contasReceber || []).filter((c) => c.status === 'pago' && inMonth(c.pagoEm)).reduce((s, c) => s + c.valor, 0)
+    const receitaPeriodo = (db.contasReceber || []).filter((c) => c.status === 'pago' && inRange(c.pagoEm)).reduce((s, c) => s + c.valor, 0)
     const clientesAtivos = (db.clients || []).filter((c) => c.status === 'ativo').length
     const osAbertas = (db.ordens || []).filter((o) => o.status !== 'concluida' && o.status !== 'cancelada').length
     const boletosPend = (db.boletos || []).filter((b) => b.status !== 'pago').length
 
-    return { receberAtraso, receberAbertoMes, pagarAtraso, pagarAbertoMes, receitaMes, clientesAtivos, osAbertas, boletosPend }
-  }, [db])
+    return { 
+      receberAtraso, receberAbertoPeriodo, pagarAtraso, pagarAbertoPeriodo, 
+      receitaPeriodo, clientesAtivos, osAbertas, boletosPend 
+    }
+  }, [db, dataInicial, dataFinal]) 
 
-  // Receita x Despesa (mock dos últimos 6 meses ancorado nos dados reais do mês)
+  // Receita x Despesa (mock mantido para o gráfico de linha)
   const fluxo = useMemo(() => {
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun']
-    const base = k.receitaMes || 12000
+    const base = k.receitaPeriodo || 12000
     return meses.map((m, i) => ({
       mes: m,
       receita: Math.round(base * (0.7 + i * 0.06)),
       despesa: Math.round(base * (0.45 + i * 0.03)),
     }))
-  }, [k.receitaMes])
+  }, [k.receitaPeriodo])
 
-  // Receita por plano
   const porPlano = useMemo(() => {
     const map = {}
     ;(db.clients || []).filter((c) => c.ativo).forEach((c) => {
@@ -86,33 +101,39 @@ export default function Dashboard() {
         title={`Olá, ${user?.name?.split(' ')[0]} 👋`}
         subtitle={`Visão geral · ${ROLES[user?.role]?.label}`}
       >
-        <Segmented
-          value={periodo}
-          onChange={setPeriodo}
-          options={[
-            { value: 'mes', label: 'Este mês' },
-            { value: 'todos', label: 'Todos' },
-          ]}
-        />
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: 'var(--mut)' }}>Período:</span>
+          <input 
+            type="date" 
+            className="input" 
+            style={{ padding: '6px', fontSize: '13px' }}
+            value={dataInicial} 
+            onChange={(e) => setDataInicial(e.target.value)} 
+          />
+          <span style={{ fontSize: '13px', color: 'var(--mut)' }}>até</span>
+          <input 
+            type="date" 
+            className="input" 
+            style={{ padding: '6px', fontSize: '13px' }}
+            value={dataFinal} 
+            onChange={(e) => setDataFinal(e.target.value)} 
+          />
+        </div>
       </PageHead>
 
-      {periodo === 'mes' && (
-        <div className="grid grid-4">
-          <Stat tone="red" icon={<AlertTriangle size={19} />} label="A receber em atraso" value={BRL(k.receberAtraso)} />
-          <Stat tone="amber" icon={<Wallet size={19} />} label="A receber em aberto (mês)" value={BRL(k.receberAbertoMes)} />
-          <Stat tone="red" icon={<TrendingDown size={19} />} label="A pagar em atraso" value={BRL(k.pagarAtraso)} />
-          <Stat tone="blue" icon={<DollarSign size={19} />} label="A pagar em aberto (mês)" value={BRL(k.pagarAbertoMes)} />
-        </div>
-      )}
+      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+        <Stat tone="red" icon={<AlertTriangle size={19} />} label="A receber em atraso" value={BRL(k.receberAtraso)} />
+        <Stat tone="amber" icon={<Wallet size={19} />} label="A receber no período" value={BRL(k.receberAbertoPeriodo)} />
+        <Stat tone="red" icon={<TrendingDown size={19} />} label="A pagar em atraso" value={BRL(k.pagarAtraso)} />
+        <Stat tone="blue" icon={<DollarSign size={19} />} label="A pagar no período" value={BRL(k.pagarAbertoPeriodo)} />
+      </div>
 
-      {periodo === 'todos' && (
-        <div className="grid grid-4">
-          <Stat tone="green" icon={<Users size={19} />} label="Clientes ativos" value={k.clientesAtivos} />
-          <Stat tone="amber" icon={<ClipboardList size={19} />} label="OS em aberto" value={k.osAbertas} />
-          <Stat tone="purple" icon={<Receipt size={19} />} label="Boletos pendentes" value={k.boletosPend} />
-          <Stat tone="blue" icon={<DollarSign size={19} />} label="Receita recebida (total)" value={BRL(k.receitaMes)} />
-        </div>
-      )}
+      <div className="grid grid-4">
+        <Stat tone="green" icon={<Users size={19} />} label="Clientes ativos" value={k.clientesAtivos} />
+        <Stat tone="amber" icon={<ClipboardList size={19} />} label="OS em aberto" value={k.osAbertas} />
+        <Stat tone="purple" icon={<Receipt size={19} />} label="Boletos pendentes" value={k.boletosPend} />
+        <Stat tone="blue" icon={<DollarSign size={19} />} label="Receita no período" value={BRL(k.receitaPeriodo)} />
+      </div>
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginTop: 16 }}>
         <Card>
