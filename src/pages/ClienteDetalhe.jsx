@@ -55,7 +55,7 @@ export default function ClienteDetalhe() {
 
   const isVendedor = user?.role === 'vendedor'
   const cliente = (db.clients || []).find((c) => c.id === id)
-  if (isVendedor && cliente && cliente.vendedorId !== user.id) {
+  if (isVendedor && cliente && cliente.socioId !== user.id) {
     return (
       <div className="container" style={{ padding: 40, textAlign: 'center' }}>
         <AlertTriangle size={40} className="mut" style={{ marginBottom: 12 }} />
@@ -201,7 +201,7 @@ export default function ClienteDetalhe() {
     <>
       <PageHead
         title={nome}
-        subtitle={`${cliente.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'} · ${maskDoc(cliente.cpfCnpj)} · Vendedor: ${userName(cliente.vendedorId)}`}
+        subtitle={`${cliente.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'} · ${maskDoc(cliente.cpfCnpj)} · Sócio: ${userName(cliente.socioId)}`}
       >
         <Btn icon={<ArrowLeft size={16} />} onClick={() => navigate('/clientes')}>Voltar</Btn>
         <Btn variant="primary" icon={<Pencil size={16} />} onClick={abrirEdicao}>Editar</Btn>
@@ -218,7 +218,7 @@ export default function ClienteDetalhe() {
               <Badge tone={cliente.tipo === 'PJ' ? 'blue' : 'purple'}>{cliente.tipo}</Badge>
             </div>
             <div className="mut" style={{ fontSize: 13, marginTop: 2 }}>
-              {plano?.nome || 'Sem plano'} · Vendedor: {userName(cliente.vendedorId)} · Cliente desde {fmtDate(cliente.criadoEm)}
+              {plano?.nome || 'Sem plano'} · Sócio: {userName(cliente.socioId)} · Cliente desde {fmtDate(cliente.criadoEm)}
             </div>
           </div>
           <div className="spacer" />
@@ -321,6 +321,7 @@ export default function ClienteDetalhe() {
                 <Row label="Data de ativação">{fmtDate(cliente.dataAtivacao)}</Row>
                 <Row label="Data de cancelamento">{fmtDate(cliente.dataCancelamento)}</Row>
                 <Row label="Parcelas em aberto"><b className="mono">{parcelasFuturas.length}</b></Row>
+                <Row label="Sócio">{userName(cliente.socioId)}</Row>
                 <Row label="Vendedor responsável">{userName(cliente.vendedorId)}</Row>
                 <Row label="Situação"><StatusBadge status={cliente.ativo ? 'ativo' : (cliente.status === 'lead' ? 'lead' : 'inativo')} /></Row>
               </div>

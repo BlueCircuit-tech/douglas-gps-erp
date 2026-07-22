@@ -19,9 +19,10 @@ export const emptyPessoa = (kind = 'cliente') => ({
   ...(kind === 'cliente'
     ? {
         emailFinanceiro: '', whatsappFinanceiroDdd: '', whatsappFinanceiroNum: '',
-        stage: 'novo', planoId: 'p_basico', vendedorId: '',
+        stage: 'novo', planoId: 'p_basico', socioId: '',
         valorMensal: 79.9, valorInstalacao: 150, quantidadeEquipamentos: 1, prazoMeses: 12,
         dataAtivacao: '', dataCancelamento: '',
+        vendedorId: '',
         historicoVendas: [], conversas: [],
       }
     : {}),
@@ -39,7 +40,7 @@ export const fromPessoa = (c, kind = 'cliente') => ({
   ...(kind === 'cliente'
     ? {
         emailFinanceiro: c.emailFinanceiro || '', whatsappFinanceiroDdd: c.whatsappFinanceiroDdd || '', whatsappFinanceiroNum: c.whatsappFinanceiroNum || '',
-        planoId: c.planoId || '', vendedorId: c.vendedorId || '',
+        planoId: c.planoId || '', socioId: c.socioId || '',
         valorMensal: c.valorMensal ?? 0, valorInstalacao: c.valorInstalacao ?? 0,
         quantidadeEquipamentos: c.quantidadeEquipamentos ?? 0, prazoMeses: c.prazoMeses ?? 12,
         dataAtivacao: c.dataAtivacao || '', dataCancelamento: c.dataCancelamento || '',
@@ -212,6 +213,12 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
               <select value={form.planoId} onChange={(e) => onPlano(e.target.value)}>
                 <option value="">Selecione</option>
                 {(db.planos || []).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </Field>
+            <Field label="Sócio">
+              <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
+                <option value="">Selecione</option>
+                {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </Field>
             <Field label="Vendedor responsável">

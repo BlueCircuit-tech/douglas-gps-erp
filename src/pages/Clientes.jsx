@@ -27,7 +27,7 @@ export default function Clientes() {
 
   const list = useMemo(() => {
     return (db.clients || []).filter((c) => {
-      if (isVendedor && c.vendedorId !== user.id) return false
+      if (isVendedor && c.socioId !== user.id) return false
       if (filter === 'ativos' && !c.ativo) return false
       if (filter === 'inativos' && c.ativo) return false
       if (filter === 'leads' && c.status !== 'lead') return false
@@ -80,11 +80,11 @@ export default function Clientes() {
       'celularDdd', 'celularNum', 'emailFinanceiro', 'whatsappFinanceiroDdd', 'whatsappFinanceiroNum',
       'endereco_cep', 'endereco_logradouro', 'endereco_numero', 'endereco_bairro', 'endereco_cidade', 'endereco_uf',
       'site', 'observacoes', 'status',
-      'vendedorId', 'planoId', 'valorMensal', 'valorInstalacao', 'quantidadeEquipamentos', 'prazoMeses',
+      'socioId', 'vendedorResponsavelId', 'planoId', 'valorMensal', 'valorInstalacao', 'quantidadeEquipamentos', 'prazoMeses',
       'dataAtivacao',
     ], [
       ['Douglas Rastreamento', 'Douglas', 'PJ', '12345678000190', '', '', '11', '999999999', 'fin@douglas.com', '11', '999999999', '01310-100', 'Av. Paulista', '100', 'Bela Vista', 'São Paulo', 'SP', 'www.douglas.com', 'Cliente ativo', 'ativo',
-        '', 'p_basico', 79.9, 150, 1, 12, new Date().toISOString().slice(0, 10)],
+        '', '', 'p_basico', 79.9, 150, 1, 12, new Date().toISOString().slice(0, 10)],
     ])
   }
 
@@ -119,7 +119,8 @@ export default function Clientes() {
           },
           site: row.site || '',
           observacoes: row.observacoes || '',
-          vendedorId: row.vendedorId || (isVendedor ? user.id : ''),
+          socioId: row.socioId || (isVendedor ? user.id : ''),
+          vendedorId: row.vendedorResponsavelId || '',
           planoId: row.planoId || 'p_basico',
           valorMensal: Number(row.valorMensal) || 79.9,
           valorInstalacao: Number(row.valorInstalacao) || 150,
@@ -182,11 +183,12 @@ export default function Clientes() {
           <table className="tbl">
             <thead>
               <tr>
-                <th>Cliente</th><th>Tipo</th><th>Contato</th><th className="right">Equip.</th><th className="right">Mensalidade</th><th>Vendedor</th><th>Status</th>
+                <th>Cliente</th><th>Tipo</th><th>Contato</th><th className="right">Equip.</th><th className="right">Mensalidade</th><th>Sócio</th><th>Vendedor</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
               {list.map((c) => {
+                const socio = (db.users || []).find((u) => u.id === c.socioId)
                 const vend = (db.users || []).find((u) => u.id === c.vendedorId)
                 return (
                   <tr key={c.id} className="clickable" onClick={() => navigate(`/clientes/${c.id}`)}>
@@ -206,6 +208,7 @@ export default function Clientes() {
                     </td>
                     <td className="right mono">{c.quantidadeEquipamentos ?? 0}</td>
                     <td className="right mono bold">{BRL(mensalidadeTotal(c))}</td>
+                    <td>{socio?.name || '—'}</td>
                     <td>{vend?.name || '—'}</td>
                     <td><StatusBadge status={c.ativo ? 'ativo' : (c.status === 'lead' ? 'lead' : 'inativo')} /></td>
                   </tr>

@@ -11,7 +11,7 @@ import {
 import { FUNNEL } from '../data/seed.js'
 import { mensalidadeTotal } from '../lib/recorrencia.js'
 
-const emptyLead = () => ({ nome: '', whatsapp: '', valorMensal: 79.9, quantidadeEquipamentos: 1, vendedorId: '' })
+const emptyLead = () => ({ nome: '', whatsapp: '', valorMensal: 79.9, quantidadeEquipamentos: 1, socioId: '' })
 
 export default function Funil() {
   const { db, refetch } = useCollections(['clients', 'users'])
@@ -83,7 +83,7 @@ export default function Funil() {
       telefoneFixo: '', emailFinanceiro: '', whatsappFinanceiro: '', site: '',
       endereco: { cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '' },
       contatos: [], historicoVendas: [], conversas: [],
-      planoId: 'p_basico', vendedorId: form.vendedorId,
+      planoId: 'p_basico', socioId: form.vendedorId, vendedorId: '',
       valorMensal: Number(form.valorMensal) || 0, quantidadeEquipamentos: Number(form.quantidadeEquipamentos) || 0,
       prazoMeses: 12, valorInstalacao: 150,
       observacoes: '', criadoEm: new Date().toISOString().slice(0, 10), contratoInicio: '',
@@ -187,7 +187,7 @@ export default function Funil() {
                         </div>
                         <div className="between" style={{ marginTop: 8, alignItems: 'center' }}>
                           <div className="mut flex gap-6" style={{ fontSize: 12, alignItems: 'center' }}>
-                            <Users size={13} /> {userName(c.vendedorId)}
+                            <Users size={13} /> {userName(c.socioId)}
                           </div>
                           <button className="btn btn-ghost btn-sm" onClick={(e) => abrirConversas(e, c)} title="Histórico de conversas" style={{ padding: '4px 8px' }}>
                             <MessageSquare size={14} /> {nConversas}
@@ -231,8 +231,8 @@ export default function Funil() {
           <Field label="Valor mensal por equipamento (R$)">
             <input type="number" step="0.01" value={form.valorMensal} onChange={(e) => set({ valorMensal: +e.target.value })} />
           </Field>
-          <Field label="Vendedor responsável">
-            <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
+          <Field label="Sócio">
+            <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
               <option value="">Selecione</option>
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
