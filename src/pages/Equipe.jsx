@@ -179,8 +179,6 @@ export default function Equipe() {
         title="Equipe"
         subtitle={`${total} membros · ${ativos} ativos · ${counts.vendedor} vendedores · ${counts.tecnico} técnicos`}
       >
-        <Btn variant="ghost" icon={<TrendingUp size={16} />} onClick={() => abrirNovo('vendedor')}>Vendedor</Btn>
-        <Btn variant="ghost" icon={<Wrench size={16} />} onClick={() => abrirNovo('tecnico')}>Técnico</Btn>
         <Btn variant="primary" icon={<UserPlus size={16} />} onClick={() => abrirNovo()}>Adicionar membro</Btn>
       </PageHead>
 

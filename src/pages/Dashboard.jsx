@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -6,12 +6,12 @@ import {
 } from 'recharts'
 import {
   DollarSign, AlertTriangle, TrendingUp, TrendingDown, Wallet, Users,
-  ClipboardList, Receipt, ArrowUpRight, UserPlus, FileText, Boxes,
+  ClipboardList, Receipt, ArrowUpRight, UserPlus, FileText, Boxes, Calendar,
 } from 'lucide-react'
 import { useCollections } from '../hooks/useSupabase.js'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { BRL, fmtDateTime, isOverdue, daysUntil } from '../lib/format.js'
-import { PageHead, Card, CardHead, Stat, Badge, Avatar } from '../components/ui.jsx'
+import { PageHead, Card, CardHead, Stat, Badge, Avatar, Segmented } from '../components/ui.jsx'
 import { ROLES } from '../data/seed.js'
 import { mensalidadeTotal } from '../lib/recorrencia.js'
 
@@ -21,19 +21,20 @@ export default function Dashboard() {
   const { db } = useCollections(['contasReceber', 'contasPagar', 'clients', 'ordens', 'boletos', 'planos', 'auditLogs', 'users'])
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [periodo, setPeriodo] = useState('mes') // 'mes' | 'todos'
 
   const k = useMemo(() => {
-    const cr = db.contasReceber || []
-    const cp = db.contasPagar || []
+    const cr = (db.contasReceber || []).filter((c) => c.status !== 'pago')
+    const cp = (db.contasPagar || []).filter((c) => c.status !== 'pago')
     const thisMonth = new Date().toISOString().slice(0, 7)
     const inMonth = (iso) => (iso || '').slice(0, 7) === thisMonth
 
-    const receberAtraso = cr.filter((c) => c.status !== 'pago' && isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
-    const receberAbertoMes = cr.filter((c) => c.status !== 'pago' && !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
-    const pagarAtraso = cp.filter((c) => c.status !== 'pago' && isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
-    const pagarAbertoMes = cp.filter((c) => c.status !== 'pago' && !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const receberAtraso = cr.filter((c) => isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const receberAbertoMes = cr.filter((c) => !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const pagarAtraso = cp.filter((c) => isOverdue(c.vencimento)).reduce((s, c) => s + c.valor, 0)
+    const pagarAbertoMes = cp.filter((c) => !isOverdue(c.vencimento) && inMonth(c.vencimento)).reduce((s, c) => s + c.valor, 0)
 
-    const receitaMes = cr.filter((c) => c.status === 'pago' && inMonth(c.pagoEm)).reduce((s, c) => s + c.valor, 0)
+    const receitaMes = (db.contasReceber || []).filter((c) => c.status === 'pago' && inMonth(c.pagoEm)).reduce((s, c) => s + c.valor, 0)
     const clientesAtivos = (db.clients || []).filter((c) => c.status === 'ativo').length
     const osAbertas = (db.ordens || []).filter((o) => o.status !== 'concluida' && o.status !== 'cancelada').length
     const boletosPend = (db.boletos || []).filter((b) => b.status !== 'pago').length
@@ -81,22 +82,37 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageHead title={`Olá, ${user?.name?.split(' ')[0]} 👋`} subtitle={`Visão geral · ${ROLES[user?.role]?.label}`} />
+      <PageHead
+        title={`Olá, ${user?.name?.split(' ')[0]} 👋`}
+        subtitle={`Visão geral · ${ROLES[user?.role]?.label}`}
+      >
+        <Segmented
+          value={periodo}
+          onChange={setPeriodo}
+          options={[
+            { value: 'mes', label: 'Este mês' },
+            { value: 'todos', label: 'Todos' },
+          ]}
+        />
+      </PageHead>
 
-      {/* KPIs financeiros (Tarefa 42) */}
-      <div className="grid grid-4">
-        <Stat tone="red" icon={<AlertTriangle size={19} />} label="A receber em atraso" value={BRL(k.receberAtraso)} />
-        <Stat tone="amber" icon={<Wallet size={19} />} label="A receber em aberto (mês)" value={BRL(k.receberAbertoMes)} />
-        <Stat tone="red" icon={<TrendingDown size={19} />} label="A pagar em atraso" value={BRL(k.pagarAtraso)} />
-        <Stat tone="blue" icon={<DollarSign size={19} />} label="A pagar em aberto (mês)" value={BRL(k.pagarAbertoMes)} />
-      </div>
+      {periodo === 'mes' && (
+        <div className="grid grid-4">
+          <Stat tone="red" icon={<AlertTriangle size={19} />} label="A receber em atraso" value={BRL(k.receberAtraso)} />
+          <Stat tone="amber" icon={<Wallet size={19} />} label="A receber em aberto (mês)" value={BRL(k.receberAbertoMes)} />
+          <Stat tone="red" icon={<TrendingDown size={19} />} label="A pagar em atraso" value={BRL(k.pagarAtraso)} />
+          <Stat tone="blue" icon={<DollarSign size={19} />} label="A pagar em aberto (mês)" value={BRL(k.pagarAbertoMes)} />
+        </div>
+      )}
 
-      <div className="grid grid-4" style={{ marginTop: 16 }}>
-        <Stat tone="green" icon={<TrendingUp size={19} />} label="Receita recebida (mês)" value={BRL(k.receitaMes)} delta="+8,2% vs. mês anterior" deltaUp />
-        <Stat tone="blue" icon={<Users size={19} />} label="Clientes ativos" value={k.clientesAtivos} />
-        <Stat tone="amber" icon={<ClipboardList size={19} />} label="OS em aberto" value={k.osAbertas} />
-        <Stat tone="purple" icon={<Receipt size={19} />} label="Boletos pendentes" value={k.boletosPend} />
-      </div>
+      {periodo === 'todos' && (
+        <div className="grid grid-4">
+          <Stat tone="green" icon={<Users size={19} />} label="Clientes ativos" value={k.clientesAtivos} />
+          <Stat tone="amber" icon={<ClipboardList size={19} />} label="OS em aberto" value={k.osAbertas} />
+          <Stat tone="purple" icon={<Receipt size={19} />} label="Boletos pendentes" value={k.boletosPend} />
+          <Stat tone="blue" icon={<DollarSign size={19} />} label="Receita recebida (total)" value={BRL(k.receitaMes)} />
+        </div>
+      )}
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginTop: 16 }}>
         <Card>

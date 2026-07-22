@@ -32,10 +32,10 @@ export default function Funil() {
   const porStage = useMemo(() => {
     const map = {}
     FUNNEL.forEach((c) => { map[c.id] = [] })
-    ;(db.clients || []).forEach((cli) => {
-      const st = map[cli.stage] ? cli.stage : 'novo'
-      ;(map[st] || (map[st] = [])).push(cli)
-    })
+      ; (db.clients || []).forEach((cli) => {
+        const st = map[cli.stage] ? cli.stage : 'novo'
+          ; (map[st] || (map[st] = [])).push(cli)
+      })
     return map
   }, [db])
 
@@ -100,7 +100,7 @@ export default function Funil() {
     }
   }
 
-  const abrirConversas = (e, cli) {
+  const abrirConversas = (e, cli) 
     e.stopPropagation()
     if (cli.stage !== 'fechado') { toast('Conversas disponíveis apenas após fechamento do negócio', 'error'); return }
     setConversaLead(cli.id); setNovaConversa('')
@@ -248,7 +248,7 @@ export default function Funil() {
           <Field label="Período de retorno" hint="Ex.: quinzenal, mensal">
             <input value={form.periodoRetorno} onChange={(e) => set({ periodoRetorno: e.target.value })} placeholder="Ex.: quinzenal" />
           </Field>
-          <Field label="Sócio">
+          <Field label="Vendedor">
             <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
               <option value="">Selecione</option>
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
@@ -297,4 +297,4 @@ export default function Funil() {
       </Modal>
     </>
   )
-}
+

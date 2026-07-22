@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   LayoutDashboard, Users, SquareKanban, ClipboardList, Wallet, Receipt,
-  Coins, FileText, Calculator, Package, Layers, BarChart3, ShieldCheck, Bell,
+  Coins, FileText, Calculator, Package, Layers, BarChart3, ShieldCheck,
   LifeBuoy, Search, LogOut, MapPin, ChevronDown, ExternalLink, Truck,
   Smartphone, Link2,
 } from 'lucide-react'
@@ -43,7 +43,6 @@ const NAV = [
   { section: 'Gestão', items: [
     { key: 'relatorios', to: '/relatorios', label: 'Relatórios', icon: BarChart3 },
     { key: 'equipe', to: '/equipe', label: 'Equipe', icon: Users },
-    { key: 'notificacoes', to: '/notificacoes', label: 'Notificações', icon: Bell },
     { key: 'auditoria', to: '/auditoria', label: 'Auditoria', icon: ShieldCheck },
     { key: 'ajuda', to: '/ajuda', label: 'Central de Ajuda', icon: LifeBuoy },
   ]},
@@ -51,15 +50,13 @@ const NAV = [
 
 export default function AppShell({ children }) {
   const { user, can, logout } = useAuth()
-  const { db } = useCollections(['ordens', 'notificacoes'])
+  const { db } = useCollections(['ordens'])
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const role = ROLES[user?.role]
-  const unread = (db.notificacoes || []).filter((n) => !n.lida).length
   const counts = {
     os: (db.ordens || []).filter((o) => o.status !== 'concluida' && o.status !== 'cancelada').length,
-    notificacoes: unread,
   }
 
   return (
@@ -109,10 +106,6 @@ export default function AppShell({ children }) {
             <a className="btn btn-sm" href={db.meta?.homolog} target="_blank" rel="noreferrer" title="Abrir homologação">
               <ExternalLink size={15} /> Homologação
             </a>
-            <NavLink to="/notificacoes" className="btn btn-ghost icon-btn" style={{ position: 'relative' }} title="Notificações">
-              <Bell size={18} />
-              {unread > 0 && <span style={{ position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: '50%', background: 'var(--red)' }} />}
-            </NavLink>
             <div style={{ position: 'relative' }}>
               <button className="btn btn-ghost" onClick={() => setMenuOpen((v) => !v)} style={{ gap: 8 }}>
                 <Avatar name={user?.name} sm />

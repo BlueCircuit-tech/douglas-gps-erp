@@ -215,7 +215,7 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
                 {(db.planos || []).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
               </select>
             </Field>
-            <Field label="Sócio">
+            <Field label="Vendedor">
               <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
                 <option value="">Selecione</option>
                 {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
