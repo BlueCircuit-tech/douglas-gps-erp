@@ -183,7 +183,7 @@ export default function Clientes() {
           <table className="tbl">
             <thead>
               <tr>
-                <th>Cliente</th><th>Tipo</th><th>Contato</th><th className="right">Equip.</th><th className="right">Mensalidade</th><th>Sócio</th><th>Vendedor</th><th>Status</th>
+                <th>Cliente</th><th>Tipo</th><th>Contato</th><th className="right">Equip.</th><th className="right">Mensalidade</th><th>Vendedor</th><th>Status</th>
               </tr>
             </thead>
             <tbody>

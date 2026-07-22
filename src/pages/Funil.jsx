@@ -249,7 +249,7 @@ export default function Funil() {
             <input value={form.periodoRetorno} onChange={(e) => set({ periodoRetorno: e.target.value })} placeholder="Ex.: quinzenal" />
           </Field>
           <Field label="Vendedor">
-            <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
+            <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
               <option value="">Selecione</option>
               {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
