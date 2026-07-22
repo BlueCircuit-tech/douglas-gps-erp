@@ -392,13 +392,13 @@ export default function Financeiro() {
           <Field label="Vencimento">
             <input type="date" value={formR.vencimento} onChange={(e) => setR({ vencimento: e.target.value })} />
           </Field>
-          <Field label="Prazo (meses)" hint="Gera N parcelas mensais">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="number" min="1" max="48" value={formR.prazoMeses} onChange={(e) => setR({ prazoMeses: e.target.value })} style={{ width: 80 }} />
-              <CalendarClock size={15} className="mut" />
-            </div>
-          </Field>
         </div>
+        <Field label="Prazo (meses)" hint="Gera N parcelas mensais — use para mensalidades ou instalações parceladas">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="number" min="1" max="48" value={formR.prazoMeses} onChange={(e) => setR({ prazoMeses: e.target.value })} style={{ width: 80 }} />
+            <CalendarClock size={15} className="mut" />
+          </div>
+        </Field>
       </Modal>
 
       {/* Modal: Adicionar conta a pagar */}

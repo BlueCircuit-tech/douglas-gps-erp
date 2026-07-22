@@ -201,7 +201,7 @@ export default function ClienteDetalhe() {
     <>
       <PageHead
         title={nome}
-        subtitle={`${cliente.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'} · ${maskDoc(cliente.cpfCnpj)}`}
+        subtitle={`${cliente.tipo === 'PJ' ? 'Pessoa Jurídica' : 'Pessoa Física'} · ${maskDoc(cliente.cpfCnpj)} · Vendedor: ${userName(cliente.vendedorId)}`}
       >
         <Btn icon={<ArrowLeft size={16} />} onClick={() => navigate('/clientes')}>Voltar</Btn>
         <Btn variant="primary" icon={<Pencil size={16} />} onClick={abrirEdicao}>Editar</Btn>
