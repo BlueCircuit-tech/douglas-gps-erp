@@ -257,6 +257,7 @@ export default function ClienteDetalhe() {
                 <Row label={cliente.tipo === 'PJ' ? 'Nome fantasia' : 'Apelido'}>{cliente.nomeFantasia || '—'}</Row>
                 <Row label={cliente.tipo === 'PJ' ? 'CNPJ' : 'CPF'}>{maskDoc(cliente.cpfCnpj)}</Row>
                 <Row label="Inscrição estadual">{cliente.ie || '—'}</Row>
+                <Row label="Sócio">{cliente.socioNome || '—'}{cliente.socioCpf ? ` · ${maskDoc(cliente.socioCpf)}` : ''}</Row>
                 <Row label="Celular / WhatsApp"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(cliente.celularDdd, cliente.celularNum) || '—'}</span></Row>
                 <Row label="Telefone fixo"><span className="flex gap-6"><Phone size={13} className="mut" />{fone(cliente.telefoneFixoDdd, cliente.telefoneFixoNum) || '—'}</span></Row>
                 <Row label="Site"><span className="flex gap-6"><Globe size={13} className="mut" />{cliente.site || '—'}</span></Row>
@@ -322,7 +323,6 @@ export default function ClienteDetalhe() {
                 <Row label="Data de cancelamento">{fmtDate(cliente.dataCancelamento)}</Row>
                 <Row label="Parcelas em aberto"><b className="mono">{parcelasFuturas.length}</b></Row>
                 <Row label="Vendedor">{userName(cliente.socioId)}</Row>
-                <Row label="Vendedor responsável">{userName(cliente.vendedorId)}</Row>
                 <Row label="Situação"><StatusBadge status={cliente.ativo ? 'ativo' : (cliente.status === 'lead' ? 'lead' : 'inativo')} /></Row>
               </div>
             </Card>

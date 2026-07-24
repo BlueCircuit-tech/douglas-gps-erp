@@ -39,6 +39,8 @@ const appToRow = (obj, table) => {
     if (v === undefined) continue
     // datas vazias -> null
     if (dates.includes(k) && (v === '' || v == null)) { out[toSnake(k)] = null; continue }
+    // FKs vazias (socioId, vendedorId, planoId, ...) -> null (evita violar FK)
+    if (k.endsWith('Id') && v === '') { out[toSnake(k)] = null; continue }
     out[toSnake(k)] = v
   }
   return out

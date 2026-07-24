@@ -19,10 +19,10 @@ export const emptyPessoa = (kind = 'cliente') => ({
   ...(kind === 'cliente'
     ? {
         emailFinanceiro: '', whatsappFinanceiroDdd: '', whatsappFinanceiroNum: '',
+        socioNome: '', socioCpf: '',
         stage: 'novo', planoId: 'p_basico', socioId: '',
         valorMensal: 79.9, valorInstalacao: 150, quantidadeEquipamentos: 1, prazoMeses: 12,
         dataAtivacao: '', dataCancelamento: '',
-        vendedorId: '',
         historicoVendas: [], conversas: [],
       }
     : {}),
@@ -40,6 +40,7 @@ export const fromPessoa = (c, kind = 'cliente') => ({
   ...(kind === 'cliente'
     ? {
         emailFinanceiro: c.emailFinanceiro || '', whatsappFinanceiroDdd: c.whatsappFinanceiroDdd || '', whatsappFinanceiroNum: c.whatsappFinanceiroNum || '',
+        socioNome: c.socioNome || '', socioCpf: c.socioCpf || '',
         planoId: c.planoId || '', socioId: c.socioId || '',
         valorMensal: c.valorMensal ?? 0, valorInstalacao: c.valorInstalacao ?? 0,
         quantidadeEquipamentos: c.quantidadeEquipamentos ?? 0, prazoMeses: c.prazoMeses ?? 12,
@@ -121,6 +122,16 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
           <Field label="RG"><input value={form.rg} onChange={(e) => set({ rg: e.target.value })} /></Field>
         )}
       </div>
+      {isCliente && (
+        <div className="form-row">
+          <Field label="Sócio do cliente" hint="Sócio/proprietário da empresa cliente">
+            <input value={form.socioNome} onChange={(e) => set({ socioNome: e.target.value })} placeholder="Nome do sócio" />
+          </Field>
+          <Field label="CPF do sócio">
+            <input value={form.socioCpf} onChange={(e) => set({ socioCpf: e.target.value })} placeholder="Somente números" />
+          </Field>
+        </div>
+      )}
 
       {/* Contato */}
       <div className="divider" />
@@ -215,14 +226,8 @@ export function PessoaForm({ kind = 'cliente', form, setForm, db }) {
                 {(db.planos || []).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
               </select>
             </Field>
-            <Field label="Vendedor">
+            <Field label="Vendedor" hint="Dono da conta — define acesso e comissão">
               <select value={form.socioId} onChange={(e) => set({ socioId: e.target.value })}>
-                <option value="">Selecione</option>
-                {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Vendedor responsável">
-              <select value={form.vendedorId} onChange={(e) => set({ vendedorId: e.target.value })}>
                 <option value="">Selecione</option>
                 {vendedores.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
